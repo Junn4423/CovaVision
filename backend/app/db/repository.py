@@ -210,14 +210,15 @@ class InMemoryRepository:
     async def save_camera(self, payload: dict[str, Any]) -> dict[str, Any]:
         camera_id = str(payload.get("id") or uuid4())
         internal_payload = dict(payload)
-        if not internal_payload.get("connection_url"):
+        current = self.cameras.get(camera_id, {})
+        if not internal_payload.get("connection_url") and not current.get("connection_url"):
             internal_payload["connection_url"] = (
                 internal_payload.get("source")
                 or internal_payload.get("rtsp_url")
                 or ""
             )
         camera = {
-            **self.cameras.get(camera_id, {}),
+            **current,
             **internal_payload,
             "id": camera_id,
             "organization_id": self.organization_id,

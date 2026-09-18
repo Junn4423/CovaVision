@@ -63,6 +63,27 @@ def test_camera_stream_contract_requires_authentication() -> None:
     assert response.status_code == 401
 
 
+def test_camera_update_without_url_preserves_backend_rtsp_source() -> None:
+    import asyncio
+
+    local_repository = InMemoryRepository()
+    asyncio.run(local_repository.save_camera({
+        "id": "camera-preserve",
+        "name": "Front camera",
+        "camera_type": "rtsp",
+        "connection_url": "rtsp://internal.example/live",
+    }))
+    updated = asyncio.run(local_repository.save_camera({
+        "id": "camera-preserve",
+        "name": "Front camera - updated",
+        "camera_type": "rtsp",
+        "camera_options": {"target_fps": 20},
+    }))
+
+    assert updated["connection_url"] == "rtsp://internal.example/live"
+    assert updated["camera_options"] == {"target_fps": 20}
+
+
 def test_recognize_endpoint_accepts_json_base64_and_records_attendance() -> None:
     class FakeFrame:
         shape = (120, 160, 3)
