@@ -14,12 +14,7 @@ export const faceRecognitionApi = {
     recognize('/api/v1/attendance', {employee_id: employeeId, location, attendance_type: attendanceType, ...(options || {})}),
   attendanceImage: (formData: FormData) => recognize('/api/v1/attendance/recognize', formData),
   attendanceImageBase64: (data: Record<string, unknown>) => recognize('/api/v1/attendance/recognize', data),
-  employeeAttendanceImage: (formData: FormData) => recognize('/api/v1/attendance/recognize', formData),
-  employeeAttendanceImageBase64: (data: Record<string, unknown>) => recognize('/api/v1/attendance/recognize', data),
-  employeeAttendanceDetectFrame: (data: Record<string, unknown>) => recognize('/api/v1/attendance/detect', data),
-  employeeAttendanceDetectImage: (formData: FormData) => recognize('/api/v1/attendance/detect', formData),
   attendanceDetectFrame: (data: Record<string, unknown>) => recognize('/api/v1/attendance/detect', data),
   attendanceDetectImage: (formData: FormData) => recognize('/api/v1/attendance/detect', formData),
   attendanceSyncStatus: (id: string) => requestFaceApi(`/api/v1/attendance/${encodeURIComponent(id)}`),
 };
-

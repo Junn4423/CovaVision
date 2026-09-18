@@ -1,6 +1,6 @@
 /**
  * Normalize face-detection response shapes used by the backends.
- * Ported from mobile: chamcong_mobile/src/utils/faceDetection.ts
+ * Ported from mobile: FaceSplitService/apps/mobile/src/utils/faceDetection.ts
  */
 export function normalizeFaceDetectionResponse(payload) {
   if (!payload || typeof payload !== 'object' || payload.success === false) {

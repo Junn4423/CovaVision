@@ -51,7 +51,7 @@ export function EmployeeRegistrationScreen({
 
   const normalizedEmployeeId = employeeId.trim();
   const normalizedName = name.trim();
-  const isErpEmployee = Boolean(initialEmployee?.employee_id);
+  const isExistingEmployee = Boolean(initialEmployee?.employee_id);
   const isExistingLocalEmployee = initialEmployee?.registered === true;
 
   const canSubmit =
@@ -179,13 +179,13 @@ export function EmployeeRegistrationScreen({
           keyboardShouldPersistTaps="handled">
           <View style={[styles.heroCard, isMobile && styles.heroCardMobile]}>
             <Text style={styles.eyebrow}>
-              {isErpEmployee ? 'Nhân viên đã có dữ liệu' : 'Nhân viên mới'}
+              {isExistingEmployee ? 'Nhân viên đã có dữ liệu' : 'Nhân viên mới'}
             </Text>
             <Text style={[styles.title, isMobile && {fontSize: 20}]}>
               {isExistingLocalEmployee ? 'Cập nhật khuôn mặt' : 'Đăng ký khuôn mặt'}
             </Text>
             <Text style={styles.description}>
-              {isErpEmployee
+              {isExistingEmployee
                 ? 'Chụp khuôn mặt trực tiếp cho nhân viên đã chọn.'
                 : 'Nhập thông tin nhân viên và chụp khuôn mặt để hoàn tất đăng ký.'}
             </Text>
@@ -202,8 +202,8 @@ export function EmployeeRegistrationScreen({
               placeholderTextColor={colors.textMuted}
               value={employeeId}
               onChangeText={setEmployeeId}
-              editable={!isErpEmployee}
-              style={[styles.input, isErpEmployee && styles.inputReadOnly]}
+              editable={!isExistingEmployee}
+              style={[styles.input, isExistingEmployee && styles.inputReadOnly]}
             />
 
             <Text style={styles.label}>Họ và tên *</Text>

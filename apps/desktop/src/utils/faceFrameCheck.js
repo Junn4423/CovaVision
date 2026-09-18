@@ -4,7 +4,7 @@
  * - Completely blank / black frames
  * - Flat solid ceilings and plain walls
  * Real world scenes containing humans / faces have high entropy and varied byte distribution.
- * Ported directly from mobile: chamcong_mobile/src/utils/faceFrameCheck.ts
+ * Ported directly from mobile: FaceSplitService/apps/mobile/src/utils/faceFrameCheck.ts
  */
 export function isLikelyFaceFrame(base64Data) {
   if (!base64Data || base64Data.length < 1500) {

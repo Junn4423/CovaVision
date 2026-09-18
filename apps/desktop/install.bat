@@ -1,8 +1,8 @@
 @echo off
-title SOF Face AI - Install Frontend
+title CovaVision - Install Desktop
 echo.
 echo ============================================
-echo   SOF Face AI - Install Frontend
+echo   CovaVision - Install Desktop
 echo ============================================
 echo.
 
@@ -25,5 +25,5 @@ if errorlevel 1 (
 )
 
 echo.
-echo Installation complete. The app uses the deployed SOF gateway.
+echo Installation complete. CovaVision uses the FastAPI backend.
 pause

@@ -14,7 +14,7 @@ Tài liệu này hướng dẫn chi tiết quy trình đóng gói Frontend React
 
 ## 2. Các Bước Cài Đặt Ban Đầu
 
-Mở Terminal tại thư mục gốc của dự án (`chamcong_mobile`):
+Mở Terminal tại thư mục gốc của dự án (`FaceSplitService/apps/mobile`):
 
 ```bash
 # 1. Cài đặt các thư viện phụ thuộc (Dependencies)
@@ -102,7 +102,7 @@ signingConfigs {
    Cập nhật `versionCode` và `versionName` trong file `android/app/build.gradle` mỗi khi tạo phiên bản mới:
    ```groovy
    defaultConfig {
-       applicationId "com.chamcongmobile"
+       applicationId "com.covavision.mobile"
        minSdkVersion rootProject.ext.minSdkVersion
        targetSdkVersion rootProject.ext.targetSdkVersion
        versionCode 31       // Tăng mỗi lần nộp bản mới (ví dụ: 31, 32, 33...)

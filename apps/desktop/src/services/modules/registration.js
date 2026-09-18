@@ -10,5 +10,3 @@ export const registrationApi = {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ employee_id: employeeId, ...(employee || {}) }),
   }),
 }
-
-// Kept as a local alias for copied screens during the migration.

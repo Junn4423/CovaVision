@@ -1,12 +1,12 @@
 @echo off
-title ChamCong Mobile - Install Dependencies
+title CovaVision Mobile - Install Dependencies
 setlocal
 
 cd /d "%~dp0"
 
 echo.
 echo ===========================================
-echo   ChamCong Mobile - Install Dependencies
+echo   CovaVision Mobile - Install Dependencies
 echo ===========================================
 echo.
 

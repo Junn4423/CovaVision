@@ -16,7 +16,6 @@ export {
   getLocalTodayAttendancePage,
   getMobileLocalDataSummary,
   initializeMobileLocalDataStore,
-  isMobileAttendanceErpSynced,
   recordMobileServerAttendanceResponse,
   recordMobileLocalFaceAttendance,
   syncAllMobileLocalData,

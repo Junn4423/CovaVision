@@ -6,20 +6,6 @@ jest.mock(
     require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );
 
-jest.mock('react-native-udp', () => ({
-  createSocket: () => ({
-    bind: (_port, callback) => {
-      if (typeof callback === 'function') {
-        callback();
-      }
-    },
-    close: () => {},
-    send: () => {},
-    setBroadcast: () => {},
-    on: () => {},
-  }),
-}));
-
 jest.mock('react-native-tts', () => ({
   __esModule: true,
   default: {
@@ -46,37 +32,6 @@ jest.mock('react-native-fs', () => ({
   TemporaryDirectoryPath: '/tmp',
   readFile: jest.fn().mockResolvedValue(''),
   writeFile: jest.fn().mockResolvedValue(undefined),
-}));
-
-jest.mock('xlsx', () => ({
-  utils: {
-    aoa_to_sheet: jest.fn(() => ({})),
-    book_new: jest.fn(() => ({})),
-    book_append_sheet: jest.fn(),
-  },
-  write: jest.fn(() => ''),
-}));
-
-jest.mock('jspdf', () => ({
-  __esModule: true,
-  default: jest.fn().mockImplementation(() => ({
-    addFileToVFS: jest.fn(),
-    addFont: jest.fn(),
-    setFont: jest.fn(),
-    setFontSize: jest.fn(),
-    text: jest.fn(),
-    output: jest.fn(() => 'data:application/pdf;base64,'),
-    internal: {
-      pageSize: {
-        getWidth: jest.fn(() => 210),
-      },
-    },
-  })),
-}));
-
-jest.mock('jspdf-autotable', () => ({
-  __esModule: true,
-  default: jest.fn(),
 }));
 
 jest.mock('react-native-camera-kit', () => {

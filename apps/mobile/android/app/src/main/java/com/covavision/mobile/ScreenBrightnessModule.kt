@@ -1,4 +1,4 @@
-package com.chamcongmobile
+package com.covavision.mobile
 
 import android.view.WindowManager
 import com.facebook.react.bridge.Promise

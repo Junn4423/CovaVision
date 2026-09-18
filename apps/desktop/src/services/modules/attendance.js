@@ -32,10 +32,6 @@ export const attendanceApi = {
 
   attendanceImage: formData => recognize('/api/v1/attendance/recognize', formData),
   attendanceImageBase64: data => recognize('/api/v1/attendance/recognize', data),
-  employeeAttendanceImage: formData => recognize('/api/v1/attendance/recognize', formData),
-  employeeAttendanceImageBase64: data => recognize('/api/v1/attendance/recognize', data),
-  employeeAttendanceDetectFrame: data => recognize('/api/v1/attendance/detect', data),
-  employeeAttendanceDetectImage: formData => recognize('/api/v1/attendance/detect', formData),
   attendanceDetectFrame: data => recognize('/api/v1/attendance/detect', data),
   attendanceDetectImage: formData => recognize('/api/v1/attendance/detect', formData),
 
@@ -67,4 +63,3 @@ export const attendanceApi = {
     body: JSON.stringify(payload || {}),
   }),
 }
-

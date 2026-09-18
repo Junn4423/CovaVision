@@ -71,8 +71,5 @@ export const authApi = {
     return Promise.resolve({ success: true, auth })
   },
   sessionStatus: () => request('/api/v1/auth/me'),
-  employeeLogin: (username, password) => loginSystem(username, password),
-  employeeLogout: logout,
-  employeeStatus: () => request('/api/v1/auth/me'),
   currentAuth: () => getAuthData(),
 }

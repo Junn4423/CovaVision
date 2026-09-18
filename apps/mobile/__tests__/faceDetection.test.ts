@@ -28,7 +28,7 @@ describe('normalizeFaceDetectionResponse', () => {
   });
 
   it('keeps the employee response user and does not invent a match', () => {
-    const user = { id: 10, employee_id: 'SOF010', name: 'Nhân viên' };
+    const user = { id: 10, employee_id: 'CV001', name: 'Nhân viên' };
     const result = normalizeFaceDetectionResponse({
       success: true,
       detected: true,

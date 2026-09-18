@@ -6,7 +6,7 @@ import { api, getAuthData } from './api';
 
 SQLite.enablePromise(true);
 
-const MOBILE_DB_PREFIX = 'chamcong_mobile';
+const MOBILE_DB_PREFIX = 'covavision_mobile';
 const MOBILE_DB_LOCATION = 'default';
 const META_LAST_EMPLOYEE_SYNC = 'last_employee_sync_at';
 const META_LAST_ACCOUNT_SYNC = 'last_account_sync_at';
@@ -245,18 +245,6 @@ function isAutoRecordLocalRow(row: any): boolean {
       row?.attendance_type === 'record' ||
       row?.attendance_type === 'auto' ||
       row?.attendance_type_label === 'Ghi chấm công',
-  );
-}
-
-export function isMobileAttendanceErpSynced(row: any): boolean {
-  const status = normalizeText(
-    row?.erp_sync_status || row?.erp_status || row?.sync_status,
-  ).toLowerCase();
-  return Boolean(
-    row?.erp_synced === true ||
-      row?.erp_pushed === true ||
-      row?.erp_result?.success === true ||
-      ['synced', 'success', 'completed', 'done'].includes(status),
   );
 }
 
@@ -604,11 +592,9 @@ export async function recordMobileServerAttendanceResponse(
     attendance_date:
       response?.attendance_date || response?.date || todayLocalDate(),
     date: response?.date || response?.attendance_date || todayLocalDate(),
-    source: response?.source || 'mobile_server_attendance',
+    source: response?.source || 'covavision_server_attendance',
     local_only: false,
-    synced: response?.erp_synced === true,
-    erp_sync_status: response?.erp_sync_status || 'pending',
-    erp_sync_error: response?.erp_sync_error || '',
+    synced: true,
   });
   if (!row.employee_id) {
     return null;
@@ -616,7 +602,7 @@ export async function recordMobileServerAttendanceResponse(
 
   recordEmployeeAttendanceTimestamp(row.employee_id, Date.now());
 
-  const synced = isMobileAttendanceErpSynced(response);
+  const synced = true;
   return runInTransaction(async db => {
     const existingResult = await executeSql(
       db,
@@ -635,9 +621,8 @@ export async function recordMobileServerAttendanceResponse(
       ? safeJsonParse<any>(existingRow.payload_json, {})
       : {};
 
-    // A face match is saved locally before the network request. Keep that
-    // stable local key while attaching the server/ERP status to it so the
-    // pending queue never turns into a duplicate record.
+    // A face match may be saved locally before the network request. Keep that
+    // stable local key when the server receipt arrives so it is not duplicated.
     const nextRow = existingPayload?.local_only
       ? {
           ...existingPayload,
@@ -648,10 +633,6 @@ export async function recordMobileServerAttendanceResponse(
           local_only: !synced,
           synced,
           source: existingPayload.source || 'mobile_auto_face_detect',
-          erp_sync_status:
-            response?.erp_sync_status || (synced ? 'synced' : 'pending'),
-          erp_sync_job_id: response?.erp_sync_job_id || '',
-          erp_sync_error: response?.erp_sync_error || response?.erp_error || '',
         }
       : {
           ...row,
@@ -1125,116 +1106,31 @@ export async function getMobileLocalDataSummary(): Promise<MobileLocalDataSummar
 }
 
 export async function syncMobileEmployeesFromServer() {
-  // Pull both ERP employees (complete list) and admin employees (registered with faces/images)
-  const [erpResponse, adminResponse] = await Promise.all([
-    api.getErpEmployees().catch(() => null),
-    api.getAdminEmployees({ include_thumb: true }).catch(() => null),
-  ]);
-
-  const erpRows = Array.isArray(erpResponse?.employees)
-    ? erpResponse.employees
-    : [];
-  const adminRows = Array.isArray(adminResponse?.employees)
-    ? adminResponse.employees
-    : [];
-
-  // Build admin map by employee_id for fast merge
-  const adminMap = new Map<string, any>();
-  for (const row of adminRows) {
-    const id = normalizeText(row?.employee_id);
-    if (id) adminMap.set(id, row);
+  const response = await api.getEmployees();
+  if (!response?.success) {
+    throw new Error(response?.message || 'Không đồng bộ được nhân viên CovaVision.');
   }
 
-  // Merge: start from ERP list (complete) and overlay admin data when available
-  const mergedRows: any[] = [];
-  for (const emp of erpRows) {
-    const employeeId = normalizeText(emp?.employee_id);
-    if (!employeeId) continue;
-
-    const erpImageToken = normalizeText(emp?.erp_image_token);
-    const erpImageUrl = normalizeText(emp?.erp_image_url);
-    const erpImageBase64 = normalizeText(emp?.erp_image_base64);
-    const admin = adminMap.get(employeeId);
-    if (admin) {
-      // Keep ERP image fields from the ERP response. Admin fields are local only.
-      const localImageToken = normalizeText(
-        admin?.local_image_token || admin?.image_token,
+  const mergedRows = (Array.isArray(response.employees) ? response.employees : [])
+    .map((employee: any) => {
+      const employeeId = normalizeText(employee?.employee_id || employee?.id);
+      if (!employeeId) return null;
+      const imageUri = normalizeText(
+        employee?.local_image_url || employee?.image_url || employee?.image_base64,
       );
-      const localImageUrl = normalizeText(
-        admin?.local_image_url || admin?.image_url,
-      );
-      const localImageBase64 = normalizeText(
-        admin?.local_image_base64 || admin?.image_base64,
-      );
-      mergedRows.push({
-        ...emp,
-        ...admin,
+      return {
+        ...employee,
         employee_id: employeeId,
-        erp_image_token: erpImageToken,
-        erp_image_url: erpImageUrl,
-        erp_image_base64: erpImageBase64,
-        local_image_token: localImageToken,
-        local_image_url: localImageUrl,
-        local_image_base64: localImageBase64,
-        // Generic image fields in the local store always mean local data.
-        image_token: localImageToken,
-        image_url: localImageUrl,
-        image_base64: localImageBase64,
-      });
-    } else {
-      // Employee only in ERP – mark as empty (no face / no image yet)
-      mergedRows.push({
-        ...emp,
-        employee_id: employeeId,
-        status_code: 'empty',
-        status_text: 'Chưa có trong hệ thống (chưa có khuôn mặt)',
-        has_face: false,
-        face_count: 0,
-        has_local_image: false,
-        erp_image_token: erpImageToken,
-        erp_image_url: erpImageUrl,
-        erp_image_base64: erpImageBase64,
-        local_image_token: '',
-        local_image_url: '',
-        local_image_base64: '',
-        image_token: '',
-        image_url: '',
-        image_base64: '',
-      });
-    }
-  }
-
-  // Also append any admin-only employees that might not appear in ERP (edge case)
-  const erpIds = new Set(
-    erpRows.map((e: any) => normalizeText(e?.employee_id)).filter(Boolean),
-  );
-  for (const admin of adminRows) {
-    const id = normalizeText(admin?.employee_id);
-    if (id && !erpIds.has(id)) {
-      const localImageToken = normalizeText(
-        admin?.local_image_token || admin?.image_token,
-      );
-      const localImageUrl = normalizeText(
-        admin?.local_image_url || admin?.image_url,
-      );
-      const localImageBase64 = normalizeText(
-        admin?.local_image_base64 || admin?.image_base64,
-      );
-      mergedRows.push({
-        ...admin,
-        employee_id: id,
-        erp_image_token: '',
-        erp_image_url: '',
-        erp_image_base64: '',
-        local_image_token: localImageToken,
-        local_image_url: localImageUrl,
-        local_image_base64: localImageBase64,
-        image_token: localImageToken,
-        image_url: localImageUrl,
-        image_base64: localImageBase64,
-      });
-    }
-  }
+        image_url: imageUri,
+        image_base64: normalizeText(employee?.image_base64),
+        local_image_url: imageUri,
+        status_code: employee?.has_face ? 'ready' : 'empty',
+        status_text: employee?.has_face
+          ? 'Đã đăng ký khuôn mặt'
+          : 'Chưa đăng ký khuôn mặt',
+      };
+    })
+    .filter(Boolean);
 
   const syncedAt = nowIsoString();
   await replaceEmployees(mergedRows, syncedAt);
@@ -1267,7 +1163,13 @@ export async function syncMobileTodayAttendanceFromServer() {
       response?.message || 'Không đồng bộ được chấm công hôm nay.',
     );
   }
-  const rows = Array.isArray(response.data) ? response.data : [];
+  const rows = Array.isArray(response.records)
+    ? response.records
+    : Array.isArray(response.attendance)
+      ? response.attendance
+      : Array.isArray(response.data)
+        ? response.data
+        : [];
   const syncedAt = nowIsoString();
   await replaceAttendanceRecords(rows, syncedAt);
   return {

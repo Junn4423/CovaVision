@@ -1,8 +1,8 @@
 @echo off
-title SOF Face AI - Web Frontend
+title CovaVision - Web Frontend
 echo.
 echo ============================================
-echo   SOF Face AI - Web Frontend
+echo   CovaVision - Web Frontend
 echo ============================================
 echo.
 
@@ -13,5 +13,5 @@ if not exist "node_modules" (
 )
 
 echo Starting Vite frontend at http://localhost:5173 ...
-echo Backend: deployed SOF gateway selected after login
+echo Backend: CovaVision FastAPI (COVAVISION_API_URL or local 127.0.0.1:8000)
 npm run dev:react -- --host 0.0.0.0

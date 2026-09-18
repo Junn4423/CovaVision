@@ -1,5 +1,4 @@
 PODS:
-  - CocoaAsyncSocket (7.6.5)
   - FBLazyVector (0.85.2)
   - hermes-engine (250829098.0.10):
     - hermes-engine/Pre-built (= 250829098.0.10)
@@ -1434,9 +1433,6 @@ PODS:
     - Yoga
   - react-native-sqlite-storage (6.0.1):
     - React-Core
-  - react-native-udp (4.1.7):
-    - CocoaAsyncSocket
-    - React-Core
   - React-NativeModulesApple (0.85.2):
     - hermes-engine
     - React-callinvoker
@@ -1936,7 +1932,6 @@ DEPENDENCIES:
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
   - react-native-sqlite-storage (from `../node_modules/react-native-sqlite-storage`)
-  - react-native-udp (from `../node_modules/react-native-udp`)
   - React-NativeModulesApple (from `../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
   - React-networking (from `../node_modules/react-native/ReactCommon/react/networking`)
   - React-oscompat (from `../node_modules/react-native/ReactCommon/oscompat`)
@@ -1977,10 +1972,6 @@ DEPENDENCIES:
   - RNVectorIcons (from `../node_modules/react-native-vector-icons`)
   - TextToSpeech (from `../node_modules/react-native-tts`)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
-
-SPEC REPOS:
-  trunk:
-    - CocoaAsyncSocket
 
 EXTERNAL SOURCES:
   FBLazyVector:
@@ -2064,8 +2055,6 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-safe-area-context"
   react-native-sqlite-storage:
     :path: "../node_modules/react-native-sqlite-storage"
-  react-native-udp:
-    :path: "../node_modules/react-native-udp"
   React-NativeModulesApple:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios"
   React-networking:
@@ -2148,9 +2137,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
 SPEC CHECKSUMS:
-  CocoaAsyncSocket: 065fd1e645c7abab64f7a6a2007a48038fdc6a99
   FBLazyVector: 26fd21c75314e101f280d401e97f27d54f3f7064
-  hermes-engine: 27587ae3f85ad848d3d091430667e787f9b38976
+  hermes-engine: f486ba5126531aef6f161afcd544feef7d46df4e
   RCTDeprecation: c7a2768f905d76ca6d2cfefb26e4349eacbdfca3
   RCTRequired: 5e502c3553cfbed090a991c444448da452fb752e
   RCTSwiftUI: 5ce3ccbdc58b78cc4ebbaace01709ec22d58e131
@@ -2159,7 +2147,7 @@ SPEC CHECKSUMS:
   React: 13cf8451582adb1bb324306e1893b91d1cba28c6
   React-callinvoker: 91e6a605826b684ad2e623811253b4d0c4196bef
   React-Core: 46818de5f211b2a2759ac823b591af8a0a95c2c1
-  React-Core-prebuilt: 2c2b6f4f10a627ec79c81ac0bee85d55ee3fd717
+  React-Core-prebuilt: 3ba0e56f3d2ecdf51068824786122e8058ea7369
   React-CoreModules: a6a37afee48d4a31ab398640b0795462647d5c67
   React-cxxreact: 2ec3e2f7a8ae9303460d4ba94cde183ea90d64cd
   React-debug: 0d21117b897ce0359c9d2c9dfe952f237476a14a
@@ -2189,7 +2177,6 @@ SPEC CHECKSUMS:
   React-microtasksnativemodule: 85ac7286ff84e8fc8e1956233748b8d4b2a6dcea
   react-native-safe-area-context: fb5c8ee9f6dd62ef710611b3d370c501f42a4ac0
   react-native-sqlite-storage: 0c84826214baaa498796c7e46a5ccc9a82e114ed
-  react-native-udp: 806f16ab890dd838bc073afcebd6a221d4965572
   React-NativeModulesApple: 993744f42aab769eb02bf5d256b6767c546d0bb5
   React-networking: 251bfddc651caca5e3039d1afa1d2eca890d0c56
   React-oscompat: ed8fa636665935e962d4091180ba6f07dcad7ea9
@@ -2224,13 +2211,13 @@ SPEC CHECKSUMS:
   ReactCodegen: 5bd23df5c8ad6c87df0bc8ccd391bd37bf6c92d5
   ReactCommon: a804bb8d1dcf3ecdec3a77eb8bba19b7863bbbdb
   ReactNativeCameraKit: d927f731400b1f45f7b441668d2f31cb873198f6
-  ReactNativeDependencies: f1955d43f3a5492c2fd8982d15108a3ec19a412b
+  ReactNativeDependencies: 239719bfdd526210089b2d69459e0fbebbfb50ed
   RNCAsyncStorage: 2ad919e88b8bc2cd80e8697ce66d04d006743283
   RNFS: 89de7d7f4c0f6bafa05343c578f61118c8282ed8
   RNVectorIcons: 97f26211c07d69e45b189f9dd0dbbe5e2d2b0b92
   TextToSpeech: 89b239221ec378d213af422d14789a729705360b
   Yoga: 04bb4bfeb02c0000b940c1e6e89e856cd8de5a71
 
-PODFILE CHECKSUM: dedbee2c836128c0a5f371c2dbbb8549ca9c5ed4
+PODFILE CHECKSUM: 336741bcbb85e86609bebc2aea0d846edebddd03
 
 COCOAPODS: 1.16.2

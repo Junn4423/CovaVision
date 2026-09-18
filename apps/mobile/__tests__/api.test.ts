@@ -8,7 +8,7 @@ describe('CovaVision mobile transport', () => {
     setApiBaseUrl('');
   });
 
-  test('resolves ordinary API paths without PHP gateway rewriting', () => {
+  test('resolves ordinary API paths without legacy gateway rewriting', () => {
     expect(resolveEndpointUrl('https://api.example.com', '/api/v1/cameras')).toBe(
       'https://api.example.com/api/v1/cameras',
     );

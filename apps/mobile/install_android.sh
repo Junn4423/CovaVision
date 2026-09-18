@@ -3,7 +3,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PACKAGE_NAME="vn.com.sof.faceai"
+PACKAGE_NAME="com.covavision.mobile"
 SERIAL="${ANDROID_SERIAL:-}"
 VARIANT="${ANDROID_INSTALL_VARIANT:-release}"
 SKIP_BUILD=0

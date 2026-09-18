@@ -1,12 +1,12 @@
 @echo off
-title ChamCong Mobile - Start on Android Device
+title CovaVision Mobile - Start on Android Device
 setlocal EnableDelayedExpansion
 
 cd /d "%~dp0"
 
 echo.
 echo ===========================================
-echo   ChamCong Mobile - Android Dev Runner
+echo   CovaVision Mobile - Android Dev Runner
 echo ===========================================
 echo.
 
@@ -24,16 +24,6 @@ if errorlevel 1 (
 )
 
 echo [CHECK] Verifying required npm packages...
-call npm ls react-native-udp >nul 2>&1
-if errorlevel 1 (
-    echo [INFO] Missing react-native-udp. Running npm install...
-    call npm install
-    if errorlevel 1 (
-        echo [ERROR] npm install failed while adding react-native-udp.
-        pause
-        exit /b 1
-    )
-)
 
 call npm ls buffer >nul 2>&1
 if errorlevel 1 (

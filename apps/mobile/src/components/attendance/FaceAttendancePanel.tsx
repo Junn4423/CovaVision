@@ -10,7 +10,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  ToastAndroid,
   View,
 } from 'react-native';
 import CameraKit, {Camera, CameraType} from 'react-native-camera-kit';
@@ -98,7 +97,6 @@ type FaceAttendancePanelProps = {
   loadLatestSettings: () => Promise<SettingsSnapshot | undefined>;
   detectImage: (payload: Record<string, unknown>) => Promise<any>;
   submitImage: (payload: Record<string, unknown>) => Promise<any>;
-  getErpSyncStatus?: (jobId: string) => Promise<any>;
   onAutoDetectedAttendance?: (payload: {
     user: any;
     detection: any;
@@ -107,16 +105,6 @@ type FaceAttendancePanelProps = {
     similarityPercent: number;
     cooldownSeconds: number;
     imageBase64: string;
-  }) => Promise<any> | any;
-  onAttendanceSyncFailed?: (payload: {
-    user: any;
-    detection: any;
-    attendanceMode: AttendanceMode;
-    attendanceType: AttendanceType | 'auto';
-    similarityPercent: number;
-    cooldownSeconds: number;
-    imageBase64: string;
-    reason?: string;
   }) => Promise<any> | any;
   onSubmitSuccess?: (response?: any) => Promise<void> | void;
 };
@@ -195,33 +183,6 @@ function buildFallbackAttendanceLabel(
   _selectedType?: AttendanceType | 'auto',
 ) {
   return 'Ghi chấm công';
-}
-
-function isErpSyncConfirmed(payload: any): boolean {
-  const status = String(
-    payload?.erp_sync_status || payload?.erp_status || payload?.sync_status || '',
-  ).trim().toLowerCase();
-  return payload?.erp_synced === true
-    || payload?.erp_pushed === true
-    || payload?.erp_result?.success === true
-    || ['synced', 'success', 'completed', 'done'].includes(status);
-}
-
-function hasAttendanceWriteReceipt(payload: any): boolean {
-  if (!payload || payload.success !== true) {
-    return false;
-  }
-
-  const attendanceId = Number(payload.attendance_id);
-  if (Number.isFinite(attendanceId) && attendanceId > 0) {
-    return true;
-  }
-
-  return Boolean(
-    String(payload.erp_sync_job_id || '').trim()
-      || String(payload.erp_sync_status || payload.sync_status || '').trim()
-      || String(payload.check_in_time || payload.check_out_time || '').trim(),
-  );
 }
 
 function buildFeedbackState(
@@ -519,9 +480,7 @@ export function FaceAttendancePanel({
   loadLatestSettings,
   detectImage,
   submitImage,
-  getErpSyncStatus,
   onAutoDetectedAttendance,
-  onAttendanceSyncFailed,
   onSubmitSuccess,
 }: FaceAttendancePanelProps) {
   const isRtspMode = useMemo(() => {
@@ -543,8 +502,8 @@ export function FaceAttendancePanel({
   const rtspPlayerRef = useRef<RtspStreamPlayerRef>(null);
   const captureInFlightRef = useRef(false);
   const detectInFlightRef = useRef(false);
-  // Keep requests independent per employee so a slow ERP response cannot
-  // discard the next employees detected by the camera.
+  // Keep requests independent per employee so a slow recognition response
+  // cannot discard the next employee detected by the camera.
   const autoLocalAttendanceInFlightKeysRef = useRef<Set<string>>(new Set());
   const processedFaceLockRef = useRef<{
     userKey: string;
@@ -653,102 +612,6 @@ export function FaceAttendancePanel({
       restoreSystemScreenBrightness().catch(() => {});
     };
   }, [assistEnabled]);
-
-  const monitorErpSync = useCallback((attendanceResponse: any) => {
-    const jobId = String(attendanceResponse?.erp_sync_job_id || '').trim();
-    if (!jobId || !getErpSyncStatus) {
-      return;
-    }
-
-    (async () => {
-      const saveMobileFallback = async (reason: string) => {
-        if (!onAttendanceSyncFailed) {
-          return null;
-        }
-
-        const responseType = String(attendanceResponse?.attendance_type || '').trim().toLowerCase();
-        const fallbackType: AttendanceType | 'auto' =
-          responseType === 'checkout'
-            ? 'checkout'
-            : responseType === 'auto' || responseType === 'record' || attendanceMode === 'auto_record'
-              ? 'auto'
-              : 'checkin';
-        const fallbackResult = await onAttendanceSyncFailed({
-          user: attendanceResponse?.user || attendanceResponse?.detected_user,
-          detection: attendanceResponse?.detection || attendanceResponse,
-          attendanceMode,
-          attendanceType: fallbackType,
-          similarityPercent: Number(attendanceResponse?.similarity_percent || 0),
-          cooldownSeconds,
-          imageBase64: String(attendanceResponse?.imageBase64 || ''),
-          reason,
-        }).catch(() => null);
-
-        if (fallbackResult?.success) {
-          const fallbackMessage = fallbackResult.message
-            || 'ERP chưa nhận dữ liệu. Đã lưu local để đồng bộ lại.';
-          setFeedback(current => current ? {
-            ...current,
-            type: 'warning',
-            message: fallbackMessage,
-          } : current);
-          if (Platform.OS === 'android') {
-            ToastAndroid.show(fallbackMessage, ToastAndroid.LONG);
-          }
-        }
-        return fallbackResult;
-      };
-
-      for (let attempt = 0; attempt < 35; attempt += 1) {
-        await delay(attempt === 0 ? 500 : 900);
-        const statusResponse = await getErpSyncStatus(jobId).catch(() => null);
-        const sync = statusResponse?.erp_sync;
-        const syncStatus = String(sync?.status || '').trim().toLowerCase();
-        if (!syncStatus || syncStatus === 'pending') {
-          continue;
-        }
-
-        const synced = syncStatus === 'synced';
-        const syncMessage = synced
-          ? 'Chấm công thành công và đã đồng bộ lên ERP.'
-          : 'Đã lưu chấm công nhưng chưa đồng bộ được ERP. Vào mục Chờ đồng bộ ERP để thử lại.';
-        const updatedResponse = {
-          ...attendanceResponse,
-          message: syncMessage,
-          erp_sync_status: syncStatus,
-          erp_synced: synced,
-          requires_manual_sync: !synced,
-          erp_sync_error: sync?.error || '',
-        };
-
-        setFeedback(current => current ? {
-          ...current,
-          type: synced ? 'success' : 'warning',
-          message: syncMessage,
-        } : current);
-        if (Platform.OS === 'android') {
-          ToastAndroid.show(syncMessage, synced ? ToastAndroid.SHORT : ToastAndroid.LONG);
-        }
-        if (synced) {
-          await onSubmitSuccess?.(updatedResponse);
-        } else {
-          await saveMobileFallback(sync?.error || syncMessage);
-        }
-        return;
-      }
-
-      const pendingMessage = 'ERP đang xử lý lâu hơn dự kiến. Bản chấm công đã được lưu và có thể đồng bộ lại trong mục Chờ đồng bộ ERP.';
-      setFeedback(current => current ? {
-        ...current,
-        type: 'warning',
-        message: pendingMessage,
-      } : current);
-      if (Platform.OS === 'android') {
-        ToastAndroid.show(pendingMessage, ToastAndroid.LONG);
-      }
-      await saveMobileFallback(pendingMessage);
-    })().catch(() => {});
-  }, [attendanceMode, cooldownSeconds, getErpSyncStatus, onAttendanceSyncFailed, onSubmitSuccess]);
 
   const runFacePrecheck = useCallback(async () => {
     if (
@@ -987,12 +850,12 @@ export function FaceAttendancePanel({
           message: `Đang xác thực điểm danh cho ${detectedUser?.name || 'nhân viên'}...`,
         });
 
-        // 3. Asynchronous Attendance API & ERP Queue
+        // 3. Send the matched frame to the CovaVision attendance API.
         const effectiveAttendanceType = 'auto' as const;
 
         Promise.resolve().then(async () => {
           try {
-            const localResult = await onAutoDetectedAttendance({
+            const attendanceResponse = await onAutoDetectedAttendance({
               user: detectedUser,
               detection: response,
               attendanceMode,
@@ -1002,52 +865,37 @@ export function FaceAttendancePanel({
               imageBase64,
             });
 
-            const resRecord = localResult?.record;
-            if (localResult?.success === false) {
-              // Critical fix: never permanently lock out on spoof false alarm or transient failure!
-              // Clear lock state immediately so the very next frame can re-probe.
+            if (attendanceResponse?.success !== true) {
               processedFaceLockRef.current = null;
               setFaceLocked(false);
               readyUserKeyRef.current = '';
               readyStreakRef.current = 0;
-
-              const isSpoof = Boolean(
-                localResult?.is_spoof ||
-                localResult?.spoof_detected ||
-                String(localResult?.message || '').toLowerCase().includes('giả mạo') ||
-                String(localResult?.message || '').toLowerCase().includes('không hợp lệ'),
-              );
-
+              const message = attendanceResponse?.message || 'Không thể ghi nhận điểm danh. Đang quét lại...';
               setFeedback({
                 type: 'warning',
-                message: isSpoof
-                  ? 'Khuôn mặt chưa rõ nét. Vui lòng nhìn thẳng và giữ yên...'
-                  : (localResult.message || 'Không thể ghi nhận chấm công. Đang quét lại...'),
+                message,
                 user: detectedUser,
               });
-
               setPrecheck(current => ({
                 ...current,
                 status: 'adjust',
                 progress: 60,
-                message: isSpoof
-                  ? 'Khuôn mặt chưa rõ nét. Vui lòng nhìn thẳng và giữ yên...'
-                  : (localResult.message || 'Chưa ghi nhận được điểm danh. Đang quét lại...'),
+                message,
               }));
               return;
             }
 
             const isCooldown = Boolean(
-              localResult?.cooldown
-              || resRecord?.cooldown
-              || resRecord?.cooldown_remaining_seconds
-              || localResult?.cooldown_remaining_seconds,
+              attendanceResponse?.cooldown
+              || attendanceResponse?.record?.cooldown
+              || attendanceResponse?.record?.cooldown_remaining_seconds
+              || attendanceResponse?.cooldown_remaining_seconds,
             );
 
             if (isCooldown) {
               const remain = Number(
-                localResult?.cooldown_remaining_seconds
-                || resRecord?.cooldown_remaining_seconds
+                attendanceResponse?.cooldown_remaining_seconds
+                || attendanceResponse?.record?.cooldown_remaining_seconds
                 || cooldownSeconds
                 || 30,
               );
@@ -1071,12 +919,12 @@ export function FaceAttendancePanel({
               speakAttendanceOutcome({
                 cooldown: true,
                 cooldown_remaining_seconds: remain,
-                message: resRecord?.message || localResult?.message,
+                message: attendanceResponse?.message,
               }).catch(() => {});
 
               setFeedback({
                 type: 'warning',
-                message: resRecord?.message || localResult?.message || `Vui lòng chờ ${remain} giây giữa các lần chấm công.`,
+                message: attendanceResponse?.message || `Vui lòng chờ ${remain} giây giữa các lần chấm công.`,
                 user: detectedUser,
               });
               return;
@@ -1098,30 +946,6 @@ export function FaceAttendancePanel({
               message: buildProcessedFaceLockMessage(detectedUser?.name || 'nhân viên'),
             });
 
-            if (localResult?.fallback) {
-              // Local fallback attendance: speak greeting and notify
-              queueAttendanceSpeech({
-                success: true,
-                user: detectedUser,
-              });
-
-              const fallbackMessage = localResult.message
-                || 'Chưa gửi được ERP. Dữ liệu đã được lưu local để đồng bộ lại.';
-              setFeedback({
-                type: 'warning',
-                message: fallbackMessage,
-                similarityPercent: Number(response?.similarity_percent || 0),
-                checkInTime: nowTimeStr,
-                attendanceTypeLabel: 'Tự động',
-                user: detectedUser,
-              });
-              if (Platform.OS === 'android') {
-                ToastAndroid.show(fallbackMessage, ToastAndroid.LONG);
-              }
-              return;
-            }
-
-            // Normal attendance success: announce greeting!
             queueAttendanceSpeech({
               success: true,
               user: detectedUser,
@@ -1135,44 +959,9 @@ export function FaceAttendancePanel({
               attendanceTypeLabel: 'Tự động',
               user: detectedUser,
             });
-
-              if (localResult?.syncPromise) {
-                Promise.resolve(localResult.syncPromise).then(syncResponse => {
-                  if (syncResponse?.success) {
-                    if (syncResponse?.erp_sync_job_id) {
-                      monitorErpSync(syncResponse);
-                    } else if (isErpSyncConfirmed(syncResponse)) {
-                      Promise.resolve(onSubmitSuccess?.(syncResponse)).catch(() => {});
-                    } else {
-                      const pendingMessage =
-                        'Backend đã nhận chấm công nhưng chưa có xác nhận ERP. Kiểm tra mục Chờ đồng bộ ERP để thử lại.';
-                      setFeedback(current => current ? {
-                        ...current,
-                        type: 'warning',
-                        message: pendingMessage,
-                      } : current);
-                      if (Platform.OS === 'android') {
-                        ToastAndroid.show(pendingMessage, ToastAndroid.LONG);
-                      }
-                    }
-                  } else {
-                    const pendingMessage =
-                      'Đã lưu chấm công local nhưng chưa gửi được ERP. Vào mục Chờ đồng bộ ERP để thử lại.';
-                    setFeedback(current => current ? {
-                      ...current,
-                      type: 'warning',
-                      message: pendingMessage,
-                    } : current);
-                    if (Platform.OS === 'android') {
-                      ToastAndroid.show(pendingMessage, ToastAndroid.LONG);
-                    }
-                  }
-                }).catch(() => {});
-              } else if (resRecord?.erp_sync_job_id) {
-                monitorErpSync(resRecord);
-              }
+            await onSubmitSuccess?.(attendanceResponse);
           } catch (err) {
-            console.warn('Background attendance logging error:', err);
+            console.warn('Background attendance request error:', err);
             processedFaceLockRef.current = null;
             setFaceLocked(false);
             readyUserKeyRef.current = '';
@@ -1207,7 +996,6 @@ export function FaceAttendancePanel({
     detectImage,
     isRtspMode,
     onAutoDetectedAttendance,
-    monitorErpSync,
     onSubmitSuccess,
     rtspStatus,
     submitting,
@@ -1373,106 +1161,15 @@ export function FaceAttendancePanel({
         });
       }
 
-      monitorErpSync(response);
-
-      if (response?.success && !hasAttendanceWriteReceipt(response) && onAttendanceSyncFailed) {
-        const fallbackResult = await onAttendanceSyncFailed({
-          user: response?.user || response?.detected_user || precheck.detectedUser,
-          detection: precheck,
-          attendanceMode: activeMode,
-          attendanceType: effectiveAttendanceType,
-          similarityPercent: Number(
-            response?.similarity_percent || precheck.similarityPercent || 0,
-          ),
-          cooldownSeconds,
-          imageBase64: capturedImageBase64,
-          reason: 'Backend chỉ nhận diện, chưa trả receipt ghi chấm công.',
-        });
-        if (fallbackResult?.success) {
-          const fallbackMessage = fallbackResult.message
-            || 'Backend chưa ghi chấm công. Đã lưu local để đồng bộ lại.';
-          setFeedback(current => current ? {
-            ...current,
-            type: 'warning',
-            message: fallbackMessage,
-            user: response?.user || response?.detected_user || precheck.detectedUser,
-          } : current);
-          if (Platform.OS === 'android') {
-            ToastAndroid.show(fallbackMessage, ToastAndroid.LONG);
-          }
-        }
-      } else if (response?.success && !response?.erp_sync_job_id && isErpSyncConfirmed(response)) {
-        Promise.resolve(onSubmitSuccess?.(response)).catch(() => {});
-      } else if (response?.success && !response?.erp_sync_job_id) {
-        const pendingMessage =
-          'Backend đã nhận chấm công nhưng chưa có xác nhận ERP. Vào mục Chờ đồng bộ ERP để kiểm tra.';
-        setFeedback(current => current ? {
-          ...current,
-          type: 'warning',
-          message: pendingMessage,
-        } : current);
-      } else if (!response?.success && !response?.cooldown && onAttendanceSyncFailed) {
-        const fallbackResult = await onAttendanceSyncFailed({
-          user: precheck.detectedUser,
-          detection: precheck,
-          attendanceMode: activeMode,
-          attendanceType: effectiveAttendanceType,
-          similarityPercent: Number(
-            response?.similarity_percent || precheck.similarityPercent || 0,
-          ),
-          cooldownSeconds,
-          imageBase64: capturedImageBase64,
-          reason: response?.message || 'Backend không ghi được chấm công.',
-        });
-        if (fallbackResult?.success) {
-          const fallbackMessage = fallbackResult.message
-            || 'ERP chưa nhận dữ liệu. Đã lưu local để đồng bộ lại.';
-          setFeedback(current => current ? {
-            ...current,
-            type: 'warning',
-            message: fallbackMessage,
-          } : current);
-          if (Platform.OS === 'android') {
-            ToastAndroid.show(fallbackMessage, ToastAndroid.LONG);
-          }
-        }
+      if (response?.success) {
+        await onSubmitSuccess?.(response);
       }
     } catch (error) {
-      if (capturedImageBase64 && onAttendanceSyncFailed && precheck.detectedUser) {
-        const fallbackResult = await onAttendanceSyncFailed({
-          user: precheck.detectedUser,
-          detection: precheck,
-          attendanceMode: 'auto_record',
-          attendanceType: 'auto',
-          similarityPercent: Number(precheck.similarityPercent || 0),
-          cooldownSeconds,
-          imageBase64: capturedImageBase64,
-          reason: error instanceof Error ? error.message : 'Không thể gửi dữ liệu chấm công.',
-        }).catch(() => null);
-        if (fallbackResult?.success) {
-          const fallbackMessage = fallbackResult.message
-            || 'Không gửi được ERP. Đã lưu local để đồng bộ lại.';
-          setFeedback({
-            type: 'warning',
-            message: fallbackMessage,
-            previewUri: captureUri || undefined,
-            user: precheck.detectedUser,
-          });
-        } else {
-          setFeedback({
-            type: 'error',
-            message: error instanceof Error ? error.message : 'Không thể gửi dữ liệu chấm công.',
-            previewUri: captureUri || undefined,
-          });
-        }
-      } else {
-        setFeedback({
-          type: 'error',
-          message:
-            error instanceof Error ? error.message : 'Không thể gửi dữ liệu chấm công.',
-          previewUri: captureUri || undefined,
-        });
-      }
+      setFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Không thể gửi dữ liệu chấm công.',
+        previewUri: captureUri || undefined,
+      });
     } finally {
       captureInFlightRef.current = false;
       readyUserKeyRef.current = '';
@@ -1492,8 +1189,6 @@ export function FaceAttendancePanel({
     cooldownSeconds,
     isRtspMode,
     loadLatestSettings,
-    monitorErpSync,
-    onAttendanceSyncFailed,
     onAttendanceModeChange,
     onSubmitSuccess,
     precheck,

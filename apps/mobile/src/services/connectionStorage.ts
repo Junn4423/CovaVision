@@ -3,7 +3,6 @@ import type {ConnectionConfig} from '../types/app';
 import {isHttpUrl, normalizeApiBaseUrl, normalizeBaseUrl} from '../utils/url';
 
 const CONNECTION_CONFIG_STORAGE_KEY = 'covavision:connection_config';
-export const MULTI_CHANNEL_STORAGE_KEY = 'covavision:selected_camera';
 
 export function sanitizeConnectionConfig(draft: ConnectionConfig): ConnectionConfig {
   const apiBaseUrl = normalizeApiBaseUrl(draft.apiBaseUrl || draft.webBaseUrl || '');
@@ -30,13 +29,3 @@ export async function loadConnectionConfig(): Promise<ConnectionConfig | null> {
   if (!raw) return null;
   try { return sanitizeConnectionConfig(JSON.parse(raw) as ConnectionConfig); } catch { return null; }
 }
-
-export interface AiServerChannel { id: string; title: string; theme: 'green' | 'yellow' | 'rose'; url: string; }
-export function buildChannelsFromLv777(): AiServerChannel[] {
-  return [{id: 'priority', title: 'CovaVision API', theme: 'green', url: ''}];
-}
-export function cleanHostAndPort(raw: string): string { return String(raw || '').trim(); }
-export function normalizeChannelUrl(raw: string): string { return cleanHostAndPort(raw); }
-export async function saveSelectedChannelId(channelId: string): Promise<void> { await AsyncStorage.setItem(MULTI_CHANNEL_STORAGE_KEY, channelId); }
-export async function loadSelectedChannelId(): Promise<string> { return (await AsyncStorage.getItem(MULTI_CHANNEL_STORAGE_KEY)) || 'priority'; }
-

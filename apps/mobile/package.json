@@ -1,12 +1,12 @@
 {
-  "name": "ChamCongMobile",
+  "name": "covavision-mobile",
   "version": "3.1.0",
   "private": true,
   "scripts": {
     "android": "react-native run-android",
     "ios": "react-native run-ios",
     "lint": "eslint .",
-    "postinstall": "node ./scripts/fix-react-native-sqlite-storage.js && node ./scripts/fix-react-native-tts.js && node ./scripts/fix-react-native-vlc.js",
+    "postinstall": "node ./scripts/fix-react-native-sqlite-storage.js && node ./scripts/fix-react-native-tts.js",
     "start": "react-native start",
     "test": "jest",
     "android:clean": "cd android && ./gradlew clean && cd ..",
@@ -21,8 +21,6 @@
     "@react-native-async-storage/async-storage": "^2.2.0",
     "buffer": "^6.0.3",
     "jpeg-js": "^0.4.4",
-    "jspdf": "^4.2.1",
-    "jspdf-autotable": "^5.0.8",
     "react": "19.2.3",
     "react-native": "0.85.2",
     "react-native-camera-kit": "^17.0.1",
@@ -30,10 +28,7 @@
     "react-native-safe-area-context": "^5.5.2",
     "react-native-sqlite-storage": "^6.0.1",
     "react-native-tts": "^4.1.1",
-    "react-native-udp": "^4.1.7",
-    "react-native-vector-icons": "^10.3.0",
-    "react-native-vlc-media-player": "^1.0.98",
-    "xlsx": "^0.18.5"
+    "react-native-vector-icons": "^10.3.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

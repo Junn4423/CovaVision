@@ -1,4 +1,4 @@
-package com.chamcongmobile
+package com.covavision.mobile
 
 import android.app.Application
 import com.facebook.react.PackageList
