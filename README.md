@@ -15,19 +15,27 @@ Hai source cũ tại `chamcong_mobile` và `ChamCong_KhuonMat` chỉ là nguồn
 ## Chạy backend tối thiểu
 
 ```bash
-cd backend
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
 pytest
-uvicorn app.main:app --reload
+uvicorn --app-dir backend app.main:app --reload
 ```
 
 Health endpoint: `GET http://127.0.0.1:8000/health`.
+
+Để chạy nhận diện và proxy camera RTSP, cài thêm `pip install -e '.[vision]'`. API giữ
+URL RTSP ở backend; desktop/mobile chỉ nhận `camera_id`, snapshot hoặc MJPEG stream.
 
 ## Database
 
 Prisma schema nằm ở `prisma/schema.prisma`. Không commit `.env`, mật khẩu, dump dữ liệu thật hoặc embedding thật vào repository.
 
-Các bước migrate MySQL sẽ được thêm sau khi contract API và mô hình nghiệp vụ được chốt bằng test.
+Kiểm tra schema:
 
+```bash
+DATABASE_URL='mysql://user:password@127.0.0.1:3306/covavision' prisma validate --schema prisma/schema.prisma
+```
+
+Không dùng giá trị ví dụ này cho môi trường thật. Mật khẩu bootstrap phải được tạo qua
+biến môi trường hoặc thao tác quản trị, không ghi vào source code.
