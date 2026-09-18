@@ -7,6 +7,8 @@ the production adapter remains backed by Prisma/MySQL.
 from __future__ import annotations
 
 import struct
+import re
+import unicodedata
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Protocol
@@ -340,7 +342,7 @@ class PrismaRepository:
         await self._ensure_connected()
         employee = await self.client.employee.find_first(
             where={"OR": [{"id": employee_id}, {"employeeCode": employee_id}]},
-            include={"faces": {"where": {"isActive": True}}},
+            include=self._employee_include(),
         )
         return self._employee_to_dict(employee) if employee else None
 
@@ -357,7 +359,7 @@ class PrismaRepository:
         employees = await self.client.employee.find_many(
             where=where,
             order={"fullName": "asc"},
-            include={"faces": {"where": {"isActive": True}}},
+            include=self._employee_include(),
         )
         return [self._employee_to_dict(employee) for employee in employees]
 
@@ -387,18 +389,52 @@ class PrismaRepository:
             "status": status,
             "metadata": payload.get("metadata") or None,
         }
+        for field_name, payload_keys in (
+            ("dateOfBirth", ("date_of_birth", "dateOfBirth")),
+            ("hireDate", ("hire_date", "hireDate")),
+            ("terminationDate", ("termination_date", "terminationDate")),
+        ):
+            present, value = self._first_payload_value(payload, payload_keys)
+            if present:
+                data[field_name] = self._parse_optional_date(value)
+
+        organization_id = organization.id if current is None else current.organizationId
+        for relation_name, relation_keys in (
+            ("department", ("department_id", "departmentId", "department_code", "departmentCode", "department")),
+            ("position", ("position_id", "positionId", "position_code", "positionCode", "position")),
+        ):
+            present, raw_value = self._first_payload_value(payload, relation_keys)
+            if not present:
+                continue
+            relation = await self._resolve_or_create_relation(
+                relation_name,
+                organization_id,
+                raw_value,
+            )
+            data[relation_name] = {"connect": {"id": relation.id}} if relation else {"disconnect": True}
         if current:
             employee = await self.client.employee.update(where={"id": current.id}, data=data)
         else:
             data["organization"] = {"connect": {"id": organization.id}}
             employee = await self.client.employee.create(data=data)
-        return self._employee_to_dict(employee)
+        refreshed = await self.client.employee.find_unique(
+            where={"id": employee.id},
+            include=self._employee_include(),
+        )
+        return self._employee_to_dict(refreshed or employee)
 
     async def list_face_candidates(self) -> list[dict[str, Any]]:
         await self._ensure_connected()
         faces = await self.client.employeeface.find_many(
             where={"isActive": True},
-            include={"employee": True},
+            include={
+                "employee": {
+                    "include": {
+                        "department": True,
+                        "position": True,
+                    },
+                },
+            },
         )
         candidates = []
         for face in faces:
@@ -422,8 +458,8 @@ class PrismaRepository:
                 "id": employee.id,
                 "employee_id": employee.employeeCode,
                 "name": employee.fullName,
-                "department": None,
-                "position": None,
+                "department": getattr(getattr(employee, "department", None), "name", None),
+                "position": getattr(getattr(employee, "position", None), "name", None),
                 "embedding": embedding,
             })
         return candidates
@@ -432,6 +468,7 @@ class PrismaRepository:
         await self._ensure_connected()
         employee = await self.client.employee.find_first(
             where={"OR": [{"id": employee_id}, {"employeeCode": employee_id}]},
+            include=self._employee_include(),
         )
         if employee is None:
             raise KeyError(employee_id)
@@ -460,6 +497,7 @@ class PrismaRepository:
         await self._ensure_connected()
         employee = await self.client.employee.find_first(
             where={"OR": [{"id": employee_id}, {"employeeCode": employee_id}]},
+            include=self._employee_include(),
         )
         if employee is None:
             raise KeyError(employee_id)
@@ -637,6 +675,72 @@ class PrismaRepository:
         return [float(value) for value in embedding]
 
     @staticmethod
+    def _employee_include() -> dict[str, Any]:
+        return {
+            "faces": {"where": {"isActive": True}},
+            "department": True,
+            "position": True,
+        }
+
+    @staticmethod
+    def _first_payload_value(payload: dict[str, Any], keys: tuple[str, ...]) -> tuple[bool, Any]:
+        for key in keys:
+            if key in payload:
+                return True, payload.get(key)
+        return False, None
+
+    @staticmethod
+    def _parse_optional_date(value: Any) -> datetime | None:
+        if value is None or str(value).strip() == "":
+            return None
+        if isinstance(value, datetime):
+            return value
+        normalized = str(value).strip().replace("Z", "+00:00")
+        if len(normalized) == 10:
+            normalized = f"{normalized}T00:00:00"
+        return datetime.fromisoformat(normalized)
+
+    async def _resolve_or_create_relation(self, relation_name: str, organization_id: str, value: Any) -> Any | None:
+        if isinstance(value, dict):
+            value = value.get("id") or value.get("code") or value.get("name")
+        text = str(value or "").strip()
+        if not text:
+            return None
+        if relation_name == "department":
+            model = self.client.department
+            prefix = "DEPT"
+        else:
+            model = self.client.jobposition
+            prefix = "POS"
+        relation = await model.find_first(
+            where={
+                "organizationId": organization_id,
+                "OR": [{"id": text}, {"code": text}, {"name": text}],
+            },
+        )
+        if relation is not None:
+            return relation
+        code = self._relation_code(prefix, text)
+        existing_code = await model.find_first(
+            where={"organizationId": organization_id, "code": code},
+        )
+        if existing_code is not None:
+            return existing_code
+        return await model.create(
+            data={
+                "organization": {"connect": {"id": organization_id}},
+                "code": code,
+                "name": text[:255],
+            },
+        )
+
+    @staticmethod
+    def _relation_code(prefix: str, value: str) -> str:
+        ascii_value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+        normalized = re.sub(r"[^A-Za-z0-9]+", "_", ascii_value).strip("_").upper()
+        return f"{prefix}_{normalized or uuid4().hex[:12]}"[:50]
+
+    @staticmethod
     def _decimal_or_none(value: Any) -> Decimal | None:
         if value is None or value == "":
             return None
@@ -654,14 +758,30 @@ class PrismaRepository:
     @staticmethod
     def _employee_to_dict(employee: Any, *, registered: bool | None = None) -> dict[str, Any]:
         faces = getattr(employee, "faces", None) or []
+        department = getattr(employee, "department", None)
+        position = getattr(employee, "position", None)
+        status = str(employee.status)
+
+        def date_value(value: Any) -> str | None:
+            return value.isoformat() if value is not None and hasattr(value, "isoformat") else None
+
         return {
             "id": employee.id,
             "employee_id": employee.employeeCode,
             "name": employee.fullName,
             "email": employee.email,
             "phone": employee.phone,
-            "department": getattr(employee.department, "name", None) if getattr(employee, "department", None) else None,
-            "position": getattr(employee.position, "name", None) if getattr(employee, "position", None) else None,
+            "department_id": employee.departmentId,
+            "department": department.name if department else None,
+            "position_id": employee.positionId,
+            "position": position.name if position else None,
+            "avatar_path": employee.avatarPath,
+            "date_of_birth": date_value(employee.dateOfBirth),
+            "hire_date": date_value(employee.hireDate),
+            "termination_date": date_value(employee.terminationDate),
+            "status": status,
+            "status_code": status.lower(),
+            "metadata": employee.metadata,
             "registered": bool(faces) if registered is None else registered,
             "has_face": bool(faces) if registered is None else registered,
             "face_count": len(faces) if registered is None else (1 if registered else 0),
