@@ -20,6 +20,7 @@ class _StreamState:
     jpeg_quality: int = 75
     preview_width: int = 0
     preview_height: int = 0
+    stream_options: dict[str, Any] = field(default_factory=dict)
     frame: bytes | None = None
     sequence: int = 0
     fps: float = 0.0
@@ -64,6 +65,7 @@ class CameraStreamManager:
             ),
             preview_width=self._option_int(options.get("frame_width"), 0, minimum=0, maximum=3840),
             preview_height=self._option_int(options.get("frame_height"), 0, minimum=0, maximum=2160),
+            stream_options=options,
             running=True,
         )
         with self._lock:
@@ -164,8 +166,14 @@ class CameraStreamManager:
                 if capture is None or not capture.isOpened():
                     if capture is not None:
                         capture.release()
-                    capture = self._open_capture(cv2, source, options)
-                    capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    try:
+                        capture = self._open_capture(cv2, source, state.stream_options)
+                        capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    except Exception as exc:  # pragma: no cover - backend-specific OpenCV errors
+                        capture = None
+                        state.error = f"Không khởi tạo được nguồn camera: {exc}"
+                        state.stop_event.wait(1.0)
+                        continue
                     if not capture.isOpened():
                         state.error = "Không mở được nguồn camera"
                         state.stop_event.wait(1.0)
