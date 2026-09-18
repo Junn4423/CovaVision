@@ -57,9 +57,4 @@ export const attendanceApi = {
     const query = buildQuery(filters)
     return requestBlob(`/api/v1/reports/attendance/export${query ? `?${query}` : ''}`)
   },
-  syncAttendance: payload => request('/api/v1/attendance/sync', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload || {}),
-  }),
 }

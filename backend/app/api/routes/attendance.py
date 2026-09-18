@@ -85,6 +85,8 @@ async def detect_faces(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/records")
 async def attendance_records(
     employee_id: Optional[str] = None,
@@ -125,11 +127,3 @@ async def attendance_stats(
 @router.get("/{attendance_id}")
 async def attendance_status(attendance_id: str, _: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     return {"success": True, "id": attendance_id, "status": "accepted"}
-
-
-@router.post("/sync")
-async def sync_attendance(
-    payload: dict[str, Any],
-    _: dict[str, Any] = Depends(get_current_user),
-) -> dict[str, Any]:
-    return {"success": True, "synced": True, "external_sync": False, "payload": payload}

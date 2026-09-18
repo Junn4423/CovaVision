@@ -38,11 +38,6 @@ async def save_account(
     return {"success": True, "account": account}
 
 
-@router.post("/import")
-async def import_accounts(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
-    return {"success": True, "imported": 0, "message": "Tài khoản được quản lý trực tiếp trong CovaVision."}
-
-
 @router.post("/{account_id}/password")
 async def reset_password(
     account_id: str,

@@ -74,8 +74,3 @@ async def save_location(
 @router.get("/system/storage")
 async def system_storage(_: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     return {"success": True, "storage": {"backend": "mysql", "runtime": "covavision"}}
-
-
-@router.get("/accounts")
-async def accounts(_: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
-    return {"success": True, "accounts": []}

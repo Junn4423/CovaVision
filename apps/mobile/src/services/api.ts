@@ -77,10 +77,6 @@ export const api: any = {
     const query = queryString(filters);
     return requestBlob(`/api/v1/reports/attendance/export${query ? `?${query}` : ''}`);
   },
-  syncAttendance: (payload: Record<string, unknown>) => request('/api/v1/attendance/sync', {
-    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
-  }),
-
   getEmployees: () => request('/api/v1/employees'),
   getAdminEmployees: (params?: Record<string, unknown>) => {
     const query = params ? queryString(params) : '';
@@ -93,9 +89,6 @@ export const api: any = {
   deleteEmployee: (employeeId: string) => request(`/api/v1/employees/${encodeURIComponent(employeeId)}`, {method: 'DELETE'}),
   clearFace: (employeeId: string) => request(`/api/v1/employees/${encodeURIComponent(employeeId)}/face`, {method: 'DELETE'}),
   getEmployeeAccounts: () => request('/api/v1/accounts'),
-  pullEmployeeAccounts: (payload: Record<string, unknown> = {}) => request('/api/v1/accounts/import', {
-    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
-  }),
   upsertEmployeeAccount: (payload: Record<string, unknown> = {}) => request('/api/v1/accounts', {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
   }),

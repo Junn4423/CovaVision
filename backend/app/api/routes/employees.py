@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -25,19 +25,6 @@ async def list_employees(
 ) -> dict[str, Any]:
     employees = await repository.list_employees(query)
     return {"success": True, "employees": [public_employee(item) for item in employees]}
-
-
-@router.post("/import")
-async def import_employees(
-    payload: Optional[dict[str, Any]] = None,
-    _: dict[str, Any] = Depends(get_current_user),
-) -> dict[str, Any]:
-    return {"success": True, "imported": 0, "message": "CovaVision quản lý nhân viên nội bộ."}
-
-
-@router.get("/compare")
-async def compare_employees(_: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
-    return {"success": True, "summary": {"total": 0, "matched": 0, "differences": 0}, "items": []}
 
 
 @router.get("/{employee_id}")

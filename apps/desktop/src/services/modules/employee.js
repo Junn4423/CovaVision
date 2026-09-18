@@ -48,9 +48,6 @@ export const employeeApi = {
   deleteEmployee: userId => request(`/api/v1/employees/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
   clearFace: userId => request(`/api/v1/employees/${encodeURIComponent(userId)}/face`, { method: 'DELETE' }),
   getEmployeeAccounts: () => request('/api/v1/accounts'),
-  pullEmployeeAccounts: payload => request('/api/v1/accounts/import', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}),
-  }),
   upsertEmployeeAccount: payload => request('/api/v1/accounts', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}),
   }),
