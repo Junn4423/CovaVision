@@ -36,6 +36,14 @@ if [ -z "$PYTHON_BIN" ]; then
   exit 1
 fi
 
+PRISMA_BIN="$PROJECT_ROOT/.venv/bin/prisma"
+if [ -x "$PRISMA_BIN" ] && [ -f "$PROJECT_ROOT/prisma/schema.prisma" ]; then
+  echo "[INFO] Chuẩn bị Prisma client Python..."
+  PATH="$PROJECT_ROOT/.venv/bin:$PATH" \
+    DATABASE_URL="${DATABASE_URL:-mysql://covavision:change-me@127.0.0.1:3306/covavision}" \
+    "$PRISMA_BIN" generate --schema "$PROJECT_ROOT/prisma/schema.prisma" >/dev/null
+fi
+
 BACKEND_URL="${COVAVISION_API_URL:-http://127.0.0.1:8000}"
 if [[ "$BACKEND_URL" != "http://127.0.0.1:8000" && "$BACKEND_URL" != "http://localhost:8000" ]]; then
   echo "[INFO] Dùng CovaVision API đã cấu hình: $BACKEND_URL"

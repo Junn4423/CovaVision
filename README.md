@@ -22,6 +22,12 @@ pytest
 uvicorn --app-dir backend app.main:app --reload
 ```
 
+Sau khi cài package lần đầu, generate Prisma Python client:
+
+```bash
+PATH="$PWD/.venv/bin:$PATH" prisma generate --schema prisma/schema.prisma
+```
+
 Health endpoint: `GET http://127.0.0.1:8000/health`.
 
 Tạo tài khoản quản trị đầu tiên sau khi MySQL đã sẵn sàng. Mật khẩu chỉ truyền qua
@@ -44,6 +50,13 @@ Kiểm tra schema:
 
 ```bash
 DATABASE_URL='mysql://user:password@127.0.0.1:3306/covavision' prisma validate --schema prisma/schema.prisma
+```
+
+Sau khi MySQL đã sẵn sàng, áp dụng schema vào database bằng Prisma:
+
+```bash
+DATABASE_URL='mysql://user:password@127.0.0.1:3306/covavision' \
+  prisma db push --schema prisma/schema.prisma
 ```
 
 Không dùng giá trị ví dụ này cho môi trường thật. Mật khẩu bootstrap phải được tạo qua
