@@ -24,6 +24,15 @@ uvicorn --app-dir backend app.main:app --reload
 
 Health endpoint: `GET http://127.0.0.1:8000/health`.
 
+Tạo tài khoản quản trị đầu tiên sau khi MySQL đã sẵn sàng. Mật khẩu chỉ truyền qua
+environment, không ghi vào source:
+
+```bash
+COVAVISION_BOOTSTRAP_USERNAME=hrm.pro1 \
+COVAVISION_BOOTSTRAP_PASSWORD='your-password' \
+PYTHONPATH=backend python backend/scripts/bootstrap_admin.py
+```
+
 Để chạy nhận diện và proxy camera RTSP, cài thêm `pip install -e '.[vision]'`. API giữ
 URL RTSP ở backend; desktop/mobile chỉ nhận `camera_id`, snapshot hoặc MJPEG stream.
 

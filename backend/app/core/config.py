@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     database_url: str = "mysql://covavision:change-me@127.0.0.1:3306/covavision"
     jwt_secret: str = "change-me-in-development"
     access_token_expire_seconds: int = 8 * 60 * 60
-    cors_origins: str = "http://127.0.0.1:5173,http://localhost:5173"
+    # Electron production loads the renderer from file://, whose CORS origin is `null`.
+    cors_origins: str = "http://127.0.0.1:5173,http://localhost:5173,null"
     bootstrap_organization_code: str = "DEFAULT"
     bootstrap_organization_name: str = "CovaVision"
     face_match_threshold: float = 0.60

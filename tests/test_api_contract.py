@@ -54,6 +54,11 @@ def test_camera_public_contract_never_returns_rtsp_secret() -> None:
     assert public_camera["camera_options"] == {"target_fps": 15}
 
 
+def test_camera_stream_contract_requires_authentication() -> None:
+    response = client.get("/api/v1/cameras/stream?camera_id=camera-1")
+    assert response.status_code == 401
+
+
 def test_recognize_endpoint_accepts_json_base64_and_records_attendance() -> None:
     class FakeFrame:
         shape = (120, 160, 3)
