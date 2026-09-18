@@ -1,20 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type {ConnectionConfig} from '../types/app';
-import {isHttpUrl, normalizeApiBaseUrl, normalizeBaseUrl} from '../utils/url';
+import {isHttpUrl, normalizeApiBaseUrl} from '../utils/url';
 
 const CONNECTION_CONFIG_STORAGE_KEY = 'covavision:connection_config';
 
 export function sanitizeConnectionConfig(draft: ConnectionConfig): ConnectionConfig {
-  const apiBaseUrl = normalizeApiBaseUrl(draft.apiBaseUrl || draft.webBaseUrl || '');
+  const apiBaseUrl = normalizeApiBaseUrl(draft.apiBaseUrl || '');
   if (!apiBaseUrl || !isHttpUrl(apiBaseUrl)) throw new Error('API URL không hợp lệ.');
-  const webBaseUrl = normalizeBaseUrl(draft.webBaseUrl || '');
   return {
     label: String(draft.label || '').trim() || 'CovaVision API',
     apiBaseUrl,
-    webBaseUrl: webBaseUrl || undefined,
-    serverId: String(draft.serverId || '').trim() || undefined,
-    pairVersion: Number.isFinite(Number(draft.pairVersion)) ? Math.trunc(Number(draft.pairVersion)) : undefined,
-    pairingMethod: String(draft.pairingMethod || '').trim() || undefined,
   };
 }
 

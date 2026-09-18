@@ -1,4 +1,4 @@
-import type {ConnectionConfig, WebTarget} from '../types/app';
+import type {ConnectionConfig} from '../types/app';
 
 const HTTP_PROTOCOL_REGEX = /^https?:\/\//i;
 
@@ -25,23 +25,10 @@ export function normalizeApiBaseUrl(value: string): string {
 }
 
 export function resolveApiBaseUrl(config: ConnectionConfig): string {
-  return normalizeApiBaseUrl(config.apiBaseUrl || config.webBaseUrl || '');
+  return normalizeApiBaseUrl(config.apiBaseUrl || '');
 }
 
 export function resolveEndpointUrl(apiBase: string, path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   return apiBase ? `${apiBase.replace(/\/+$/, '')}${normalizedPath}` : normalizedPath;
 }
-
-export function buildWebAppUrl(config: ConnectionConfig, target: WebTarget): string {
-  const baseUrl = normalizeBaseUrl(config.webBaseUrl || resolveApiBaseUrl(config));
-  const route: Record<WebTarget, string> = {portal: '/', employee: '/employee/login', admin: '/admin/login'};
-  return `${baseUrl}/#${route[target]}`;
-}
-
-export function getTargetLabel(target: WebTarget): string {
-  if (target === 'employee') return 'Cổng chấm công';
-  if (target === 'admin') return 'Cổng quản trị';
-  return 'CovaVision';
-}
-

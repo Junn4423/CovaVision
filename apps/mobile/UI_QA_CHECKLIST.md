@@ -52,7 +52,7 @@
 - [x] "Den ngay" → "Đến ngày" (AdminWorkspaceScreen, EmployeeAttendanceScreen)
 - [x] "Lua chon he thong" → "Lựa chọn hệ thống" (ConnectionConfigScreen)
 - [x] "Quay lai" → "Quay lại" (ConnectionConfigScreen)
-- [x] "ChamCong Mobile Native" → "Chấm công Mobile" (ConnectionConfigScreen)
+- [x] "CovaVision Mobile" → "Chấm công Mobile" (ConnectionConfigScreen)
 
 ## Hardcoded Color Removal
 - [x] All `#eff6ff` → `colors.infoBg`

@@ -12,17 +12,14 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import {colors, spacing} from '../design-system';
 
 import type {ConnectionConfig, ConnectionHealth} from '../types/app';
-import {normalizeBaseUrl} from '../utils/url';
 
 type ConnectionConfigScreenProps = {
   initialConfig: ConnectionConfig | null;
   status: ConnectionHealth | null;
   checkingConnection: boolean;
   savingConfig: boolean;
-  systemDomain?: string;
   onCheckConnection: (draft: ConnectionConfig) => Promise<void>;
   onSaveConnection: (draft: ConnectionConfig) => Promise<void>;
-  onOpenAutoConfig?: () => void;
   onCancel?: () => void;
 };
 
@@ -36,34 +33,15 @@ export function ConnectionConfigScreen({
   status,
   checkingConnection,
   savingConfig,
-  systemDomain,
   onCheckConnection,
   onSaveConnection,
-  onOpenAutoConfig,
   onCancel,
 }: ConnectionConfigScreenProps) {
-  const COVAVISION_CONFIG_PRESET: ConnectionConfig = {
-    label: 'Kết nối CovaVision API',
-    apiBaseUrl: normalizeBaseUrl(systemDomain || ''),
-    pairingMethod: 'manual',
-  };
   const [draft, setDraft] = useState<ConnectionConfig>(initialConfig || EMPTY_CONFIG);
 
   useEffect(() => {
     setDraft(initialConfig || EMPTY_CONFIG);
   }, [initialConfig]);
-
-  function applyPreset(nextConfig: ConnectionConfig) {
-    setDraft(current => ({
-      ...current,
-      label: nextConfig.label,
-      apiBaseUrl: nextConfig.apiBaseUrl,
-      webBaseUrl: nextConfig.webBaseUrl,
-      serverId: undefined,
-      pairVersion: undefined,
-      pairingMethod: nextConfig.pairingMethod || 'manual',
-    }));
-  }
 
   function updateField<K extends keyof ConnectionConfig>(
     key: K,
@@ -74,12 +52,6 @@ export function ConnectionConfigScreen({
         ...current,
         [key]: value,
       };
-
-      if (key === 'apiBaseUrl' || key === 'webBaseUrl') {
-        nextDraft.serverId = undefined;
-        nextDraft.pairVersion = undefined;
-        nextDraft.pairingMethod = 'manual';
-      }
 
       return nextDraft;
     });
@@ -96,42 +68,6 @@ export function ConnectionConfigScreen({
           <Text style={styles.description}>
             Nhập thông tin kết nối để app có thể giao tiếp với hệ thống.
           </Text>
-        </View>
-
-        <View style={styles.sectionCard}>
-          <Text style={styles.label}>Lựa chọn hệ thống</Text>
-          <View style={styles.presetList}>
-            <Pressable
-              onPress={() => {
-                if (onOpenAutoConfig) {
-                  onOpenAutoConfig();
-                } else {
-                  applyPreset(initialConfig || EMPTY_CONFIG);
-                }
-              }}
-              style={({pressed}) => [
-                styles.presetButton,
-                draft.apiBaseUrl !== COVAVISION_CONFIG_PRESET.apiBaseUrl
-                  ? styles.presetButtonActive
-                  : null,
-                pressed && styles.buttonPressed,
-              ]}>
-              <Text style={styles.presetTitle}>CovaVision API</Text>
-              <Text style={styles.presetDescription}>Nhập URL reverse proxy hoặc API server đã cấu hình.</Text>
-            </Pressable>
-
-            <Pressable
-              onPress={() => applyPreset(COVAVISION_CONFIG_PRESET)}
-              style={({pressed}) => [
-                styles.presetButton,
-                draft.apiBaseUrl === COVAVISION_CONFIG_PRESET.apiBaseUrl
-                  ? styles.presetButtonActive
-                  : null,
-                pressed && styles.buttonPressed,
-              ]}>
-              <Text style={styles.presetTitle}>Kết nối CovaVision</Text>
-            </Pressable>
-          </View>
         </View>
 
         <View style={styles.sectionCard}>

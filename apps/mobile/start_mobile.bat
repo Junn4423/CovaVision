@@ -115,10 +115,10 @@ if not defined DEVICE_MODEL set "DEVICE_MODEL=Unknown"
 echo [2/4] Using device: !DEVICE_ID! (!DEVICE_MODEL!)
 echo [3/4] Setting adb reverse ports for dev...
 adb -s "!DEVICE_ID!" reverse tcp:8081 tcp:8081 >nul 2>&1
-adb -s "!DEVICE_ID!" reverse tcp:5000 tcp:5000 >nul 2>&1
+adb -s "!DEVICE_ID!" reverse tcp:8000 tcp:8000 >nul 2>&1
 
 echo [4/4] Starting Metro bundler in a new window (reset cache)...
-start "ChamCong Mobile Metro" cmd /k "cd /d ""%~dp0"" && npm start -- --reset-cache"
+start "CovaVision Mobile Metro" cmd /k "cd /d ""%~dp0"" && npm start -- --reset-cache"
 
 echo.
 echo Installing and launching debug app on phone...
@@ -138,9 +138,9 @@ echo   App launched in DEV mode.
 echo ===========================================
 echo.
 echo Keep Metro window open while developing.
-echo For full flow, start backend in chamcong_desktop-web.
+echo For full flow, start the CovaVision FastAPI backend.
 echo Mobile config now uses backend-only:
-echo   Backend API URL: http://localhost:5000
+echo   Backend API URL: http://localhost:8000
 echo.
 pause
 
