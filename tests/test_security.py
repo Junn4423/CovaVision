@@ -27,3 +27,15 @@ def test_camera_stream_options_are_clamped_for_low_latency() -> None:
     assert manager._option_float(2, 30, minimum=5, maximum=30) == 5
     assert manager._option_int(82, 75, minimum=40, maximum=95) == 82
     assert manager._option_int("bad", 75, minimum=40, maximum=95) == 75
+
+
+def test_camera_stream_options_merge_processing_limits() -> None:
+    options = CameraStreamManager._resolve_stream_options({
+        "camera_options": {"target_fps": 30, "frame_width": 1280},
+        "processing_options": {"fps_limit": 15, "stream_jpeg_quality": 60},
+    })
+
+    assert options["target_fps"] == 30
+    assert options["fps_limit"] == 15
+    assert options["stream_jpeg_quality"] == 60
+    assert options["frame_width"] == 1280

@@ -77,6 +77,7 @@ def test_camera_update_without_url_preserves_backend_rtsp_source() -> None:
         "id": "camera-preserve",
         "name": "Front camera - updated",
         "camera_type": "rtsp",
+        "connection_url": "",
         "camera_options": {"target_fps": 20},
     }))
 

@@ -211,7 +211,9 @@ class InMemoryRepository:
         camera_id = str(payload.get("id") or uuid4())
         internal_payload = dict(payload)
         current = self.cameras.get(camera_id, {})
-        if not internal_payload.get("connection_url") and not current.get("connection_url"):
+        if not internal_payload.get("connection_url") and current.get("connection_url"):
+            internal_payload.pop("connection_url", None)
+        elif not internal_payload.get("connection_url"):
             internal_payload["connection_url"] = (
                 internal_payload.get("source")
                 or internal_payload.get("rtsp_url")
@@ -499,9 +501,12 @@ class PrismaRepository:
             "WEBCAM": "WEBCAM",
             "MOBILE": "MOBILE",
         }.get(requested_camera_type, "RTSP")
-        options = payload.get("options") or payload.get("camera_options") or {}
-        if not isinstance(options, dict):
-            options = {}
+        current_options = getattr(current, "options", None) if current else None
+        options = dict(current_options) if isinstance(current_options, dict) else {}
+        for key in ("options", "camera_options", "processing_options"):
+            value = payload.get(key)
+            if isinstance(value, dict):
+                options.update(value)
         data = {
             "name": str(payload.get("name") or camera_id).strip(),
             "type": camera_type,
@@ -686,7 +691,16 @@ class PrismaRepository:
             "connection_url": camera.connectionUrl,
             "username": camera.username,
             "password_secret": camera.passwordSecret,
-            "camera_options": camera.options or {},
+            "camera_options": {
+                key: value
+                for key, value in (camera.options or {}).items()
+                if key not in {"fps_limit", "stream_jpeg_quality", "skip_ai_frames", "no_motion_delay"}
+            },
+            "processing_options": {
+                key: value
+                for key, value in (camera.options or {}).items()
+                if key in {"fps_limit", "stream_jpeg_quality", "skip_ai_frames", "no_motion_delay"}
+            },
             "is_default": camera.isDefault,
             "is_active": camera.isActive,
         }

@@ -18,7 +18,7 @@ const DEFAULT_CAMERA_OPTIONS = {
 const DEFAULT_PROCESSING_OPTIONS = {
   fps_limit: 30,
   skip_ai_frames: 1,
-  stream_jpeg_quality: 85,
+  stream_jpeg_quality: 70,
   no_motion_delay: 2.0,
 }
 
@@ -88,7 +88,7 @@ function toCameraPayload(camera) {
     processing_options: {
       fps_limit: Number(camera.processing_options.fps_limit) || 30,
       skip_ai_frames: Number(camera.processing_options.skip_ai_frames) || 1,
-      stream_jpeg_quality: Number(camera.processing_options.stream_jpeg_quality) || 85,
+      stream_jpeg_quality: Number(camera.processing_options.stream_jpeg_quality) || 70,
       no_motion_delay: Number(camera.processing_options.no_motion_delay) || 2.0,
     },
   }
@@ -422,7 +422,7 @@ export default function Cameras() {
                   min="40"
                   max="100"
                   value={cameraForm.processing_options.stream_jpeg_quality}
-                  onChange={event => updateProcessingOption('stream_jpeg_quality', Number(event.target.value) || 85)}
+                  onChange={event => updateProcessingOption('stream_jpeg_quality', Number(event.target.value) || 70)}
                   className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm"
                 />
               </div>

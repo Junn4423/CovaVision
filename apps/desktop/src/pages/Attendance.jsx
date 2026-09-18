@@ -59,7 +59,7 @@ const FIXED_BROWSER_CAMERA = {
   processing_options: {
     fps_limit: 30,
     skip_ai_frames: 1,
-    stream_jpeg_quality: 85,
+    stream_jpeg_quality: 70,
     no_motion_delay: 2.0,
   },
 }

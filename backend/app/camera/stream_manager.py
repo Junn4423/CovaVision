@@ -18,6 +18,8 @@ class _StreamState:
     camera_id: str
     max_fps: float = 30.0
     jpeg_quality: int = 75
+    preview_width: int = 0
+    preview_height: int = 0
     frame: bytes | None = None
     sequence: int = 0
     fps: float = 0.0
@@ -47,18 +49,21 @@ class CameraStreamManager:
 
         del cv2  # Import check keeps API startup light; worker imports it once.
         self.stop(camera_id)
-        options = camera.get("camera_options") or camera.get("options") or {}
-        if not isinstance(options, dict):
-            options = {}
+        options = self._resolve_stream_options(camera)
         state = _StreamState(
             camera_id=camera_id,
-            max_fps=self._option_float(options.get("target_fps"), self.max_fps, minimum=5.0, maximum=30.0),
+            max_fps=min(
+                self._option_float(options.get("target_fps"), self.max_fps, minimum=5.0, maximum=30.0),
+                self._option_float(options.get("fps_limit"), self.max_fps, minimum=5.0, maximum=30.0),
+            ),
             jpeg_quality=self._option_int(
                 options.get("stream_jpeg_quality"),
                 self.jpeg_quality,
                 minimum=40,
                 maximum=95,
             ),
+            preview_width=self._option_int(options.get("frame_width"), 0, minimum=0, maximum=3840),
+            preview_height=self._option_int(options.get("frame_height"), 0, minimum=0, maximum=2160),
             running=True,
         )
         with self._lock:
@@ -159,7 +164,7 @@ class CameraStreamManager:
                 if capture is None or not capture.isOpened():
                     if capture is not None:
                         capture.release()
-                    capture = cv2.VideoCapture(source)
+                    capture = self._open_capture(cv2, source, options)
                     capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                     if not capture.isOpened():
                         state.error = "Không mở được nguồn camera"
@@ -173,6 +178,8 @@ class CameraStreamManager:
                     capture.release()
                     capture = None
                     continue
+
+                frame = self._resize_preview(cv2, frame, state.preview_width, state.preview_height)
 
                 ok, encoded = cv2.imencode(
                     ".jpg",
@@ -204,6 +211,54 @@ class CameraStreamManager:
             state.running = False
             with state.condition:
                 state.condition.notify_all()
+
+    @staticmethod
+    def _resolve_stream_options(camera: dict[str, Any]) -> dict[str, Any]:
+        options: dict[str, Any] = {}
+        for key in ("options", "camera_options", "processing_options"):
+            value = camera.get(key)
+            if isinstance(value, dict):
+                options.update(value)
+        return options
+
+    @staticmethod
+    def _open_capture(cv2: Any, source: str, options: dict[str, Any]) -> Any:
+        backend = getattr(cv2, "CAP_FFMPEG", getattr(cv2, "CAP_ANY", 0))
+        is_rtsp = source.lower().startswith(("rtsp://", "rtsps://"))
+        capture = cv2.VideoCapture(source, backend) if is_rtsp else cv2.VideoCapture(source)
+        if is_rtsp and not capture.isOpened() and backend != getattr(cv2, "CAP_ANY", 0):
+            capture.release()
+            capture = cv2.VideoCapture(source)
+        for option_name, property_name in (
+            ("open_timeout_ms", "CAP_PROP_OPEN_TIMEOUT_MSEC"),
+            ("read_timeout_ms", "CAP_PROP_READ_TIMEOUT_MSEC"),
+        ):
+            property_id = getattr(cv2, property_name, None)
+            if property_id is None:
+                continue
+            try:
+                capture.set(property_id, float(options.get(option_name) or 5000))
+            except (AttributeError, TypeError, ValueError):
+                continue
+        return capture
+
+    @staticmethod
+    def _resize_preview(cv2: Any, frame: Any, target_width: int, target_height: int) -> Any:
+        if not target_width and not target_height:
+            return frame
+        height, width = frame.shape[:2]
+        scale = 1.0
+        if target_width:
+            scale = min(scale, target_width / max(width, 1))
+        if target_height:
+            scale = min(scale, target_height / max(height, 1))
+        if scale >= 0.999:
+            return frame
+        return cv2.resize(
+            frame,
+            (max(1, round(width * scale)), max(1, round(height * scale))),
+            interpolation=cv2.INTER_AREA,
+        )
 
     @staticmethod
     def _option_float(value: Any, fallback: float, *, minimum: float, maximum: float) -> float:

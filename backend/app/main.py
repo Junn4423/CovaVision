@@ -30,7 +30,7 @@ def create_app(repository=None, camera_manager=None) -> FastAPI:
         allow_headers=["*"],
     )
     application.state.repository = repository or PrismaRepository()
-    application.state.camera_manager = camera_manager or CameraStreamManager(max_fps=30)
+    application.state.camera_manager = camera_manager or CameraStreamManager(max_fps=30, jpeg_quality=70)
     application.state.recognition_service = None
     application.include_router(health_router)
     application.include_router(auth_router)
