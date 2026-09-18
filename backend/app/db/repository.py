@@ -228,9 +228,14 @@ class PrismaRepository:
             or (getattr(current, "connectionUrl", "") if current else "")
             or ""
         ).strip()
-        camera_type = str(payload.get("camera_type") or payload.get("type") or "rtsp").upper()
-        if camera_type not in {"RTSP", "DEVICE", "BROWSER", "MOBILE"}:
-            camera_type = "RTSP"
+        requested_camera_type = str(payload.get("camera_type") or payload.get("type") or "rtsp").upper()
+        camera_type = {
+            "RTSP": "RTSP",
+            "DEVICE": "WEBCAM",
+            "BROWSER": "WEBCAM",
+            "WEBCAM": "WEBCAM",
+            "MOBILE": "MOBILE",
+        }.get(requested_camera_type, "RTSP")
         options = payload.get("options") or payload.get("camera_options") or {}
         if not isinstance(options, dict):
             options = {}

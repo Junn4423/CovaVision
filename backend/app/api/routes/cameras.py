@@ -12,26 +12,63 @@ from app.db.repository import Repository
 router = APIRouter(prefix="/api/v1/cameras", tags=["cameras"])
 
 
+_HIDDEN_CAMERA_KEYS = {
+    "connection_url",
+    "source",
+    "rtsp_url",
+    "stream_url",
+    "url",
+    "uri",
+    "username",
+    "password",
+    "password_secret",
+    "secret",
+    "ip",
+    "host",
+    "port",
+    "camera_ip",
+    "connectionurl",
+    "rtspurl",
+    "streamurl",
+    "passwordsecret",
+    "cameraip",
+}
+
+
+def _camera_key_is_hidden(key: Any) -> bool:
+    normalized = "".join(character for character in str(key).lower() if character.isalnum())
+    return str(key).lower() in _HIDDEN_CAMERA_KEYS or normalized in _HIDDEN_CAMERA_KEYS
+
+
+def _safe_camera_value(value: Any) -> Any:
+    """Remove nested connection details before returning camera metadata."""
+    if isinstance(value, dict):
+        return {
+            key: _safe_camera_value(item)
+            for key, item in value.items()
+            if not _camera_key_is_hidden(key)
+        }
+    if isinstance(value, list):
+        return [_safe_camera_value(item) for item in value]
+    return value
+
+
 def public_camera(camera: dict[str, Any]) -> dict[str, Any]:
     # Camera connection details never cross the API boundary. The browser/mobile
     # client receives only an opaque id and operational metadata; the backend is
     # the sole component that opens RTSP and stores credentials.
-    hidden = {
-        "connection_url",
-        "source",
-        "rtsp_url",
-        "stream_url",
-        "username",
-        "password",
-        "password_secret",
-        "secret",
-        "ip",
-        "host",
-        "port",
-        "camera_ip",
+    result = _safe_camera_value(camera)
+    result = {
+        key: value
+        for key, value in result.items()
+        if not _camera_key_is_hidden(key)
     }
-    result = {key: value for key, value in camera.items() if key not in hidden}
-    result.setdefault("camera_type", result.get("type", "rtsp"))
+    camera_type = str(result.get("camera_type") or result.get("type") or "rtsp").lower()
+    result["camera_type"] = {
+        "rtsp": "rtsp",
+        "webcam": "browser",
+        "mobile": "mobile",
+    }.get(camera_type, camera_type)
     return result
 
 

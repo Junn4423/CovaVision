@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { HardDrive, CheckCircle2, Volume2, Sparkles, Send, Radio, Settings2 } from 'lucide-react'
 import { api } from '../services/api'
+import { openBackendMjpegStream } from '../services/backendMjpegStream'
 import { ROUTES } from '../config/routes'
 import {
   ATTENDANCE_MODE_OPTIONS,
@@ -492,7 +493,7 @@ export default function Attendance() {
   const [browserDevicesLoading, setBrowserDevicesLoading] = useState(false)
   const [selectedBrowserDeviceId, setSelectedBrowserDeviceId] = useState('')
   const [pendingOfflineCount, setPendingOfflineCount] = useState(0)
-  const [backendSnapshot, setBackendSnapshot] = useState('')
+  const [backendStreamReady, setBackendStreamReady] = useState(false)
   const [backendSnapshotError, setBackendSnapshotError] = useState('')
   const [activeFaceLock, setActiveFaceLock] = useState(null)
   const [isSpeakerModalOpen, setIsSpeakerModalOpen] = useState(false)
@@ -714,10 +715,10 @@ export default function Attendance() {
       rtspRafIdRef.current = 0
     }
 
-    // The backend owns RTSP. The desktop only polls the latest JPEG snapshot
-    // with Bearer auth, so no browser/Electron surface receives a camera URL.
+    // The backend owns RTSP. The desktop consumes only the authenticated JPEG
+    // proxy, so no browser/Electron surface receives a camera URL.
     if (!(cameraRunning && cameraRuntimeMode === 'backend')) {
-      setBackendSnapshot('')
+      setBackendStreamReady(false)
       setBackendSnapshotError('')
       return undefined
     }
@@ -725,6 +726,7 @@ export default function Attendance() {
     let cancelled = false
     let hasFirstFrame = false
     let lastRenderedFrame = ''
+    const abortController = new AbortController()
 
     // High-performance rAF render loop: reads latest frame from ref
     // and writes directly to <img> DOM node, bypassing React state.
@@ -746,48 +748,43 @@ export default function Attendance() {
     }
     rtspRafIdRef.current = requestAnimationFrame(renderFrame)
 
-    // Snapshot fetch loop: runs as fast as IPC allows, writes to ref
-    const fetchLoop = async () => {
-      if (cancelled) return
-      if (!snapshotInFlightRef.current) {
-        snapshotInFlightRef.current = true
-        try {
-          const res = await api.cameraSnapshot(activeCameraId)
-          if (!cancelled && res?.success && res.image_base64) {
-            rtspLatestFrameRef.current = res.image_base64
-            const now = performance.now()
-            const times = fpsFrameTimesRef.current
-            times.push(now)
-            while (times.length > 0 && now - times[0] > 2000) times.shift()
-            if (!hasFirstFrame) {
-              hasFirstFrame = true
-            }
-            setBackendSnapshot(res.image_base64)
-            setBackendSnapshotError('')
-          } else if (!cancelled && !hasFirstFrame) {
-            setBackendSnapshotError(res?.message || 'Đang chờ khung hình từ camera...')
-          }
-        } catch (error) {
-          if (!cancelled && !hasFirstFrame) {
-            setBackendSnapshotError(error?.message || 'Không lấy được khung hình camera')
-          }
-        } finally {
-          snapshotInFlightRef.current = false
+    // Consume one authenticated MJPEG proxy stream. Only JPEG bytes reach the
+    // renderer; the backend remains the only component that knows the RTSP URL.
+    openBackendMjpegStream(activeCameraId, {
+      signal: abortController.signal,
+      onFrame: async jpegBytes => {
+        if (cancelled) return
+        const nextObjectUrl = URL.createObjectURL(new Blob([jpegBytes], { type: 'image/jpeg' }))
+        const previousObjectUrl = rtspLatestFrameRef.current
+        rtspLatestFrameRef.current = nextObjectUrl
+        if (previousObjectUrl?.startsWith('blob:')) {
+          // Keep the previous image alive long enough for the browser's decode
+          // pipeline and direct-DOM swap to finish.
+          setTimeout(() => URL.revokeObjectURL(previousObjectUrl), 1000)
         }
+        if (!hasFirstFrame) {
+          hasFirstFrame = true
+          setBackendStreamReady(true)
+          setBackendSnapshotError('')
+        }
+      },
+    }).catch(error => {
+      if (!cancelled && error?.name !== 'AbortError') {
+        setBackendSnapshotError(error?.message || 'Không lấy được luồng camera proxy')
       }
-      if (!cancelled) {
-        setTimeout(fetchLoop, 80)
-      }
-    }
-    fetchLoop()
+    })
 
     return () => {
       cancelled = true
+      abortController.abort()
       if (rtspRafIdRef.current) {
         cancelAnimationFrame(rtspRafIdRef.current)
         rtspRafIdRef.current = 0
       }
       snapshotInFlightRef.current = false
+      const currentObjectUrl = rtspLatestFrameRef.current
+      if (currentObjectUrl?.startsWith('blob:')) URL.revokeObjectURL(currentObjectUrl)
+      rtspLatestFrameRef.current = ''
     }
   }, [activeCameraId, cameraRunning, cameraRuntimeMode])
 
@@ -1851,13 +1848,12 @@ export default function Attendance() {
             }`}
           >
             {cameraRunning && cameraRuntimeMode === 'backend' ? (
-              backendSnapshot ? (
+              backendStreamReady ? (
                 <img
                   ref={(node) => {
                     imgRef.current = node
                     rtspImgDomRef.current = node
                   }}
-                  src={backendSnapshot}
                   alt="Video feed"
                   className="w-full h-full object-cover"
                   style={{ willChange: 'contents' }}

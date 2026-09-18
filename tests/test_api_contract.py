@@ -35,6 +35,11 @@ def test_camera_public_contract_never_returns_rtsp_secret() -> None:
             "connection_url": "rtsp://internal.example/live",
             "username": "camera-user",
             "password": "camera-secret",
+            "camera_options": {
+                "rtspUrl": "rtsp://nested.internal/live",
+                "host": "private-camera-host",
+                "target_fps": 15,
+            },
         },
     )
 
@@ -43,4 +48,4 @@ def test_camera_public_contract_never_returns_rtsp_secret() -> None:
     assert "connection_url" not in public_camera
     assert "password" not in public_camera
     assert "username" not in public_camera
-
+    assert public_camera["camera_options"] == {"target_fps": 15}
