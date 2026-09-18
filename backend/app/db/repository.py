@@ -30,6 +30,14 @@ class Repository(Protocol):
 
     async def clear_employee_face(self, employee_id: str) -> dict[str, Any]: ...
 
+    async def list_accounts(self) -> list[dict[str, Any]]: ...
+
+    async def save_account(self, payload: dict[str, Any]) -> dict[str, Any]: ...
+
+    async def reset_account_password(self, account_id: str, password: str) -> dict[str, Any]: ...
+
+    async def set_account_lock(self, account_id: str, is_locked: bool) -> dict[str, Any]: ...
+
     async def list_cameras(self) -> list[dict[str, Any]]: ...
 
     async def get_camera(self, camera_id: str) -> dict[str, Any] | None: ...
@@ -148,6 +156,51 @@ class InMemoryRepository:
         employee["updated_at"] = _now().isoformat()
         return employee
 
+    async def list_accounts(self) -> list[dict[str, Any]]:
+        return [
+            {
+                key: value
+                for key, value in user.items()
+                if key not in {"password_hash", "passwordHash"}
+            }
+            for user in self.users.values()
+        ]
+
+    async def save_account(self, payload: dict[str, Any]) -> dict[str, Any]:
+        username = str(payload.get("username") or "").strip()
+        if not username:
+            raise ValueError("username is required")
+        current = self.users.get(username, {})
+        password = str(payload.get("password") or "").strip()
+        account = {
+            **current,
+            "id": current.get("id") or str(uuid4()),
+            "username": username,
+            "role": str(payload.get("role") or current.get("role") or "STAFF").upper(),
+            "organization_id": self.organization_id,
+            "is_active": payload.get("is_active", payload.get("isActive", current.get("is_active", True))) is not False,
+        }
+        if password:
+            account["password_hash"] = hash_password(password)
+        elif not account.get("password_hash"):
+            raise ValueError("password is required for a new account")
+        self.users[username] = account
+        return {key: value for key, value in account.items() if key != "password_hash"}
+
+    async def reset_account_password(self, account_id: str, password: str) -> dict[str, Any]:
+        user = next((item for item in self.users.values() if item.get("id") == account_id or item.get("username") == account_id), None)
+        if user is None:
+            raise KeyError(account_id)
+        user["password_hash"] = hash_password(password)
+        return {key: value for key, value in user.items() if key != "password_hash"}
+
+    async def set_account_lock(self, account_id: str, is_locked: bool) -> dict[str, Any]:
+        user = next((item for item in self.users.values() if item.get("id") == account_id or item.get("username") == account_id), None)
+        if user is None:
+            raise KeyError(account_id)
+        user["is_active"] = not is_locked
+        return {key: value for key, value in user.items() if key != "password_hash"}
+
     async def list_cameras(self) -> list[dict[str, Any]]:
         return list(self.cameras.values())
 
@@ -224,6 +277,61 @@ class PrismaRepository:
             "organization_id": user.organizationId,
             "is_active": user.isActive,
         }
+
+    async def list_accounts(self) -> list[dict[str, Any]]:
+        await self._ensure_connected()
+        accounts = await self.client.useraccount.find_many(order={"username": "asc"})
+        return [self._account_to_dict(account) for account in accounts]
+
+    async def save_account(self, payload: dict[str, Any]) -> dict[str, Any]:
+        await self._ensure_connected()
+        organization = await self._default_organization()
+        username = str(payload.get("username") or "").strip()
+        if not username:
+            raise ValueError("username is required")
+        current = await self.client.useraccount.find_unique(where={"username": username})
+        role = str(payload.get("role") or (str(current.role) if current else "STAFF")).upper()
+        if role not in {"ADMIN", "HR_MANAGER", "SUPERVISOR", "STAFF"}:
+            role = "STAFF"
+        password = str(payload.get("password") or "").strip()
+        data: dict[str, Any] = {
+            "username": username,
+            "role": role,
+            "isActive": payload.get("is_active", payload.get("isActive", True)) is not False,
+        }
+        if password:
+            data["passwordHash"] = hash_password(password)
+        if current:
+            account = await self.client.useraccount.update(where={"id": current.id}, data=data)
+        else:
+            if not password:
+                raise ValueError("password is required for a new account")
+            data["passwordHash"] = hash_password(password)
+            data["organization"] = {"connect": {"id": organization.id}}
+            account = await self.client.useraccount.create(data=data)
+        return self._account_to_dict(account)
+
+    async def reset_account_password(self, account_id: str, password: str) -> dict[str, Any]:
+        await self._ensure_connected()
+        account = await self._find_account(account_id)
+        if account is None:
+            raise KeyError(account_id)
+        updated = await self.client.useraccount.update(
+            where={"id": account.id},
+            data={"passwordHash": hash_password(password)},
+        )
+        return self._account_to_dict(updated)
+
+    async def set_account_lock(self, account_id: str, is_locked: bool) -> dict[str, Any]:
+        await self._ensure_connected()
+        account = await self._find_account(account_id)
+        if account is None:
+            raise KeyError(account_id)
+        updated = await self.client.useraccount.update(
+            where={"id": account.id},
+            data={"isActive": not is_locked},
+        )
+        return self._account_to_dict(updated)
 
     async def get_employee(self, employee_id: str) -> dict[str, Any] | None:
         await self._ensure_connected()
@@ -551,6 +659,21 @@ class PrismaRepository:
             "registered": bool(faces) if registered is None else registered,
             "has_face": bool(faces) if registered is None else registered,
             "face_count": len(faces) if registered is None else (1 if registered else 0),
+        }
+
+    async def _find_account(self, account_id: str) -> Any:
+        return await self.client.useraccount.find_first(
+            where={"OR": [{"id": account_id}, {"username": account_id}]},
+        )
+
+    @staticmethod
+    def _account_to_dict(account: Any) -> dict[str, Any]:
+        return {
+            "id": account.id,
+            "username": account.username,
+            "role": str(account.role),
+            "organization_id": account.organizationId,
+            "is_active": account.isActive,
         }
 
     @staticmethod

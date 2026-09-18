@@ -99,3 +99,29 @@ def test_recognize_endpoint_accepts_json_base64_and_records_attendance() -> None
     assert response.status_code == 200
     assert response.json()["success"] is True
     assert response.json()["record"]["employee_id"] == "EMP-API"
+
+
+def test_admin_contracts_cover_accounts_settings_and_report_export() -> None:
+    token = client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin.test", "password": "test-password"},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    account = client.post(
+        "/api/v1/accounts",
+        headers=headers,
+        json={"username": "staff.contract", "password": "secret", "role": "STAFF"},
+    )
+    assert account.status_code == 200
+    assert "password_hash" not in account.json()["account"]
+
+    mobile_settings = client.post(
+        "/api/v1/settings/mobile",
+        headers=headers,
+        json={"camera_id": "camera-1"},
+    )
+    assert mobile_settings.status_code == 200
+    export = client.get("/api/v1/reports/attendance/export", headers=headers)
+    assert export.status_code == 200
+    assert "employee_id" in export.text

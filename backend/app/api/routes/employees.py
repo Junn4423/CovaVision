@@ -62,6 +62,20 @@ async def save_employee(
     return {"success": True, "employee": public_employee(employee)}
 
 
+@router.patch("/{employee_id}")
+async def update_employee(
+    employee_id: str,
+    payload: dict[str, Any],
+    _: dict[str, Any] = Depends(get_current_user),
+    repository: Repository = Depends(get_repository),
+) -> dict[str, Any]:
+    employee = await repository.get_employee(employee_id)
+    if employee is None:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    updated = await repository.save_employee({**employee, **payload, "employee_id": employee_id})
+    return {"success": True, "employee": public_employee(updated)}
+
+
 @router.post("/face")
 async def register_face(
     request: Request,

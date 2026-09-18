@@ -35,6 +35,24 @@ async def attendance_settings(
     return {"success": True, "settings": await repository.get_settings("attendance_settings")}
 
 
+@router.get("/settings/mobile")
+async def mobile_settings(
+    _: dict[str, Any] = Depends(get_current_user),
+    repository: Repository = Depends(get_repository),
+) -> dict[str, Any]:
+    return {"success": True, "settings": await repository.get_settings("mobile_config")}
+
+
+@router.post("/settings/mobile")
+async def save_mobile_settings(
+    payload: dict[str, Any],
+    _: dict[str, Any] = Depends(get_current_user),
+    repository: Repository = Depends(get_repository),
+) -> dict[str, Any]:
+    await repository.save_settings({"mobile_config": payload})
+    return {"success": True, "settings": {"mobile_config": payload}}
+
+
 @router.get("/location")
 async def get_location(
     _: dict[str, Any] = Depends(get_current_user),
@@ -61,4 +79,3 @@ async def system_storage(_: dict[str, Any] = Depends(get_current_user)) -> dict[
 @router.get("/accounts")
 async def accounts(_: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     return {"success": True, "accounts": []}
-

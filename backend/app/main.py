@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.attendance import router as attendance_router
+from app.api.routes.accounts import router as accounts_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.cameras import router as cameras_router
 from app.api.routes.employees import router as employees_router
@@ -33,6 +34,7 @@ def create_app(repository=None, camera_manager=None) -> FastAPI:
     application.state.recognition_service = None
     application.include_router(health_router)
     application.include_router(auth_router)
+    application.include_router(accounts_router)
     application.include_router(employees_router)
     application.include_router(cameras_router)
     application.include_router(attendance_router)
