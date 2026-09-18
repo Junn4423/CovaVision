@@ -62,12 +62,7 @@ export type AppScreen =
   | 'auto_config'
   | 'qr_scanner'
   | 'manual_config'
-  | 'portal'
-  | 'employee_login'
-  | 'employee_attendance'
   | 'employee_register'
   | 'admin_login'
-  | 'admin_hub'
-  | 'admin_attendance'
-  | 'admin_workspace';
-  
+  | 'admin_home'
+  | 'admin_attendance';

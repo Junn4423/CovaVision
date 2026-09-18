@@ -3,7 +3,7 @@ import {clearAuthState} from './api';
 
 export const AUTH_STORAGE_KEY = 'covavision.mobile.auth.v1';
 
-export async function logoutGatewaySession(): Promise<{success: boolean; message?: string}> {
+export async function logoutSession(): Promise<{success: boolean; message?: string}> {
   clearAuthState();
   await AsyncStorage.removeItem(AUTH_STORAGE_KEY).catch(() => {});
   return {success: true};

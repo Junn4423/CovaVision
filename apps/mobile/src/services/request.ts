@@ -33,8 +33,8 @@ export function getApiBaseUrl(): string { return runtimeApiBase; }
 export function setSessionToken(token: string | null): void { sessionToken = token ? String(token).trim() : null; }
 export function getSessionToken(): string | null { return sessionToken; }
 export function clearSessionToken(): void { sessionToken = null; }
-export function setGatewayAuth(auth: Record<string, any> | null): void { authData = auth; }
-export function getGatewayAuth(): Record<string, any> | null { return authData; }
+export function setAuthData(auth: Record<string, any> | null): void { authData = auth; }
+export function getAuthData(): Record<string, any> | null { return authData; }
 export function clearAuthState(): void { sessionToken = null; authData = null; }
 
 function buildAuthHeaders(headers: Record<string, string> = {}): Record<string, string> {

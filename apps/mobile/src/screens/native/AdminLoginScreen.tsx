@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, {useState} from 'react';
 import {ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View} from 'react-native';
-import {api, setGatewayAuth, setSessionToken} from '../../services/api';
+import {api, setAuthData, setSessionToken} from '../../services/api';
 import {AUTH_STORAGE_KEY} from '../../services/authSession';
 
 type Props = {onBack: () => void; onLoggedIn: (payload: any) => void};
@@ -20,7 +20,7 @@ export function AdminLoginScreen({onBack, onLoggedIn}: Props) {
       if (!response?.success) { setError(response?.message || 'Đăng nhập thất bại.'); return; }
       const token = response.access_token || response.token;
       setSessionToken(token);
-      setGatewayAuth(response.user || null);
+      setAuthData(response.user || null);
       await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({...response, token, sessionToken: token}));
       onLoggedIn({...response, token, sessionToken: token});
     } catch (err: any) { setError(err?.message || 'Không thể kết nối CovaVision API.'); }
@@ -59,4 +59,3 @@ const styles = StyleSheet.create({
   link: {alignItems: 'center', padding: 8},
   linkText: {color: '#475569'},
 });
-

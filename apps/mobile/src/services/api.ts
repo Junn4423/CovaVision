@@ -1,6 +1,6 @@
 import {
-  clearAuthState, clearSessionToken, getApiBaseUrl, getGatewayAuth, getSessionToken,
-  request, requestBlob, setApiBaseUrl, setFallbackApiBaseUrl, setGatewayAuth,
+  clearAuthState, clearSessionToken, getApiBaseUrl, getAuthData, getSessionToken,
+  request, requestBlob, setApiBaseUrl, setFallbackApiBaseUrl, setAuthData,
   setSessionToken, setUnauthorizedListener,
 } from './request';
 import {faceRecognitionApi} from './api/faceRecognition';
@@ -25,8 +25,8 @@ function formOrJson(path: string, payload: FormData | Record<string, unknown>) {
 }
 
 export {
-  clearAuthState, clearSessionToken, getApiBaseUrl, getGatewayAuth, getSessionToken,
-  setApiBaseUrl, setFallbackApiBaseUrl, setGatewayAuth, setSessionToken,
+  clearAuthState, clearSessionToken, getApiBaseUrl, getAuthData, getSessionToken,
+  setApiBaseUrl, setFallbackApiBaseUrl, setAuthData, setSessionToken,
   setUnauthorizedListener,
 };
 
@@ -119,17 +119,3 @@ export const api: any = {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
   }),
 };
-
-// Names retained temporarily for screens copied from the old UI; all calls stay in CovaVision.
-(api as any).registerFromErp = api.registerEmployee;
-(api as any).getErpEmployees = api.getEmployees;
-(api as any).getErpEmployeeInfo = api.getEmployee;
-(api as any).getSyncCompare = () => request('/api/v1/employees/compare');
-(api as any).importAllFromErp = (payload: Record<string, unknown> = {}) => request('/api/v1/employees/import', {
-  method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
-});
-(api as any).reloadFromErp = api.getEmployee;
-(api as any).pushToErp = (employeeId: string) => request(`/api/v1/employees/${encodeURIComponent(employeeId)}`, {method: 'PATCH'});
-(api as any).pushReportToErp = api.syncAttendance;
-(api as any).pushAttendanceToErp = api.syncAttendance;
-(api as any).attendanceErpSyncStatus = api.attendanceSyncStatus;

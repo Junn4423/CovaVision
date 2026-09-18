@@ -179,14 +179,14 @@ export function EmployeeRegistrationScreen({
           keyboardShouldPersistTaps="handled">
           <View style={[styles.heroCard, isMobile && styles.heroCardMobile]}>
             <Text style={styles.eyebrow}>
-              {isErpEmployee ? 'Nhân viên ERP' : 'Nhân viên mới'}
+              {isErpEmployee ? 'Nhân viên đã có dữ liệu' : 'Nhân viên mới'}
             </Text>
             <Text style={[styles.title, isMobile && {fontSize: 20}]}>
               {isExistingLocalEmployee ? 'Cập nhật khuôn mặt' : 'Đăng ký khuôn mặt'}
             </Text>
             <Text style={styles.description}>
               {isErpEmployee
-                ? 'Chụp khuôn mặt trực tiếp cho nhân viên đã chọn từ ERP.'
+                ? 'Chụp khuôn mặt trực tiếp cho nhân viên đã chọn.'
                 : 'Nhập thông tin nhân viên và chụp khuôn mặt để hoàn tất đăng ký.'}
             </Text>
           </View>

@@ -1,5 +1,5 @@
 import SQLite from 'react-native-sqlite-storage';
-import { clearAuthState, setGatewayAuth } from '../src/services/api';
+import { clearAuthState, setAuthData } from '../src/services/api';
 import { initializeMobileLocalDataStore } from '../src/services/mobileLocalData';
 
 describe('mobile local data isolation', () => {
@@ -7,17 +7,17 @@ describe('mobile local data isolation', () => {
     clearAuthState();
   });
 
-  test('opens a separate SQLite database for each ERP database', async () => {
+  test('opens a separate SQLite database for each configured tenant', async () => {
     const openDatabase = SQLite.openDatabase as jest.Mock;
     openDatabase.mockClear();
 
-    setGatewayAuth({ database: 'company_a_database' });
+    setAuthData({ database: 'company_a_database' });
     await initializeMobileLocalDataStore();
 
-    setGatewayAuth({ database: 'company_b_database' });
+    setAuthData({ database: 'company_b_database' });
     await initializeMobileLocalDataStore();
 
-    setGatewayAuth({ database: 'company_a_database' });
+    setAuthData({ database: 'company_a_database' });
     await initializeMobileLocalDataStore();
 
     expect(openDatabase).toHaveBeenCalledTimes(2);

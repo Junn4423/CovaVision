@@ -2,7 +2,7 @@ import SQLite, {
   type SQLiteDatabase,
   type SQLiteResultSet,
 } from 'react-native-sqlite-storage';
-import { api, getGatewayAuth } from './api';
+import { api, getAuthData } from './api';
 
 SQLite.enablePromise(true);
 
@@ -36,7 +36,7 @@ function hashTenantKey(value: string): string {
 }
 
 function getActiveTenantKey(): string {
-  const auth = getGatewayAuth() || {};
+  const auth = getAuthData() || {};
   return normalizeText(
     auth.database || auth.dbName || auth.table,
   ).toLowerCase();
