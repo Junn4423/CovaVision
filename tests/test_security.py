@@ -1,3 +1,4 @@
+from app.camera.stream_manager import CameraStreamManager
 from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
 
 
@@ -18,3 +19,11 @@ def test_access_token_round_trip() -> None:
     assert claims["sub"] == "user-1"
     assert claims["role"] == "ADMIN"
 
+
+def test_camera_stream_options_are_clamped_for_low_latency() -> None:
+    manager = CameraStreamManager(max_fps=30, jpeg_quality=75)
+
+    assert manager._option_float(60, 30, minimum=5, maximum=30) == 30
+    assert manager._option_float(2, 30, minimum=5, maximum=30) == 5
+    assert manager._option_int(82, 75, minimum=40, maximum=95) == 82
+    assert manager._option_int("bad", 75, minimum=40, maximum=95) == 75

@@ -16,6 +16,8 @@ from typing import Any, Iterator
 @dataclass
 class _StreamState:
     camera_id: str
+    max_fps: float = 30.0
+    jpeg_quality: int = 75
     frame: bytes | None = None
     sequence: int = 0
     fps: float = 0.0
@@ -27,7 +29,7 @@ class _StreamState:
 
 
 class CameraStreamManager:
-    def __init__(self, *, max_fps: float = 15.0, jpeg_quality: int = 75) -> None:
+    def __init__(self, *, max_fps: float = 30.0, jpeg_quality: int = 75) -> None:
         self.max_fps = max(1.0, float(max_fps))
         self.jpeg_quality = max(40, min(95, int(jpeg_quality)))
         self._states: dict[str, _StreamState] = {}
@@ -45,7 +47,20 @@ class CameraStreamManager:
 
         del cv2  # Import check keeps API startup light; worker imports it once.
         self.stop(camera_id)
-        state = _StreamState(camera_id=camera_id, running=True)
+        options = camera.get("camera_options") or camera.get("options") or {}
+        if not isinstance(options, dict):
+            options = {}
+        state = _StreamState(
+            camera_id=camera_id,
+            max_fps=self._option_float(options.get("target_fps"), self.max_fps, minimum=5.0, maximum=30.0),
+            jpeg_quality=self._option_int(
+                options.get("stream_jpeg_quality"),
+                self.jpeg_quality,
+                minimum=40,
+                maximum=95,
+            ),
+            running=True,
+        )
         with self._lock:
             self._states[camera_id] = state
         state.thread = threading.Thread(
@@ -162,7 +177,7 @@ class CameraStreamManager:
                 ok, encoded = cv2.imencode(
                     ".jpg",
                     frame,
-                    [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality],
+                    [int(cv2.IMWRITE_JPEG_QUALITY), state.jpeg_quality],
                 )
                 if not ok:
                     continue
@@ -180,7 +195,7 @@ class CameraStreamManager:
                     frame_count = 0
                     fps_started = time.monotonic()
 
-                remaining = (1.0 / self.max_fps) - (time.monotonic() - started)
+                remaining = (1.0 / state.max_fps) - (time.monotonic() - started)
                 if remaining > 0:
                     state.stop_event.wait(remaining)
         finally:
@@ -189,3 +204,19 @@ class CameraStreamManager:
             state.running = False
             with state.condition:
                 state.condition.notify_all()
+
+    @staticmethod
+    def _option_float(value: Any, fallback: float, *, minimum: float, maximum: float) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            parsed = fallback
+        return max(minimum, min(maximum, parsed))
+
+    @staticmethod
+    def _option_int(value: Any, fallback: int, *, minimum: int, maximum: int) -> int:
+        try:
+            parsed = int(float(value))
+        except (TypeError, ValueError):
+            parsed = fallback
+        return max(minimum, min(maximum, parsed))
