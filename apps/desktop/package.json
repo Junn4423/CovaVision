@@ -1,0 +1,70 @@
+{
+  "name": "covavision-desktop",
+  "version": "1.0.0",
+  "description": "Face Recognition Attendance System",
+  "main": "electron/main.js",
+  "scripts": {
+    "postinstall": "echo 'CovaVision desktop ready'",
+    "rebuild": "echo 'No local backend rebuild required'",
+    "dev:react": "vite",
+    "dev:electron": "node electron/run-dev.cjs",
+    "dev": "node scripts/dev.cjs",
+    "build:react": "vite build",
+    "build:react:dev": "vite build --mode development",
+    "build:react:prod": "vite build --mode production",
+    "pack:electron": "electron-builder",
+    "build:electron": "npm run build:react && npm run pack:electron",
+    "build:electron:no-backend": "npm run build:react && npm run pack:electron",
+    "build": "npm run build:electron",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "lucide-react": "^1.7.0",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "sweetalert2": "^11.14.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.15",
+    "vite": "^6.0.0",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.covavision.desktop",
+    "productName": "CovaVision",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/@ffmpeg-installer/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "public/icon.ico",
+      "signingHashAlgorithms": [],
+      "sign": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

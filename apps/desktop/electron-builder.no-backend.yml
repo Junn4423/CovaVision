@@ -1,0 +1,19 @@
+appId: com.facecheck.app
+productName: FaceCheck
+directories:
+  output: release
+files:
+  - dist/**/*
+  - electron/**/*
+asarUnpack:
+  - node_modules/@ffmpeg-installer/**/*
+win:
+  target:
+    - nsis
+    - portable
+  icon: public/icon.ico
+  signingHashAlgorithms: []
+  sign: null
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

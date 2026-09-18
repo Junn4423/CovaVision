@@ -1,0 +1,178 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+:root {
+  --sidebar-width: 260px;
+  --sidebar-collapsed-width: 0px;
+  --topbar-height: 0px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* Toast container */
+.toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+  max-width: 420px;
+  width: 100%;
+}
+
+.toast-item {
+  pointer-events: auto;
+  animation: toastSlideIn 0.35s cubic-bezier(0.21, 1.02, 0.73, 1) forwards;
+  position: relative;
+  overflow: hidden;
+}
+
+.toast-item.toast-exit {
+  animation: toastSlideOut 0.3s cubic-bezier(0.06, 0.71, 0.55, 1) forwards;
+}
+
+@keyframes toastSlideIn {
+  from { opacity: 0; transform: translateX(100%); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes toastSlideOut {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(100%); }
+}
+
+.toast-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  border-radius: 0 0 0 8px;
+  animation: toastProgress linear forwards;
+}
+
+@keyframes toastProgress {
+  from { width: 100%; }
+  to   { width: 0%; }
+}
+
+/* Sidebar transitions */
+.sidebar-overlay {
+  transition: opacity 0.3s ease;
+}
+
+/* Page transition */
+.page-content {
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.erp-token-only-row {
+  animation: erpTokenPulse 2.8s ease-in-out infinite;
+}
+
+@keyframes erpTokenPulse {
+  0%, 100% {
+    box-shadow: inset 3px 0 0 rgba(217, 119, 6, 0.18);
+    background-color: rgba(255, 251, 235, 0.35);
+  }
+  50% {
+    box-shadow: inset 3px 0 0 rgba(217, 119, 6, 0.36);
+    background-color: rgba(254, 243, 199, 0.45);
+  }
+}
+
+@media (max-width: 640px) {
+  .toast-container {
+    left: 10px;
+    right: 10px;
+    max-width: none;
+  }
+}
+
+/* Desktop Luxury UI Design System Tokens */
+.desktop-glass-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
+}
+
+.desktop-glass-dark {
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.3);
+}
+
+.desktop-hero-portal {
+  background: radial-gradient(circle at 10% 20%, #0f274a 0%, #091528 50%, #040913 100%);
+  min-height: 100vh;
+}
+
+.desktop-bento-stat {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.desktop-bento-stat:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px -4px rgba(15, 23, 42, 0.08);
+}
+
+/* Face Recognition HUD */
+.face-hud-corner {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-color: #06b6d4;
+  pointer-events: none;
+}
+.face-hud-corner.tl { top: 0; left: 0; border-top-width: 3px; border-left-width: 3px; border-top-left-radius: 6px; }
+.face-hud-corner.tr { top: 0; right: 0; border-top-width: 3px; border-right-width: 3px; border-top-right-radius: 6px; }
+.face-hud-corner.bl { bottom: 0; left: 0; border-bottom-width: 3px; border-left-width: 3px; border-bottom-left-radius: 6px; }
+.face-hud-corner.br { bottom: 0; right: 0; border-bottom-width: 3px; border-right-width: 3px; border-bottom-right-radius: 6px; }
+
+.face-hud-corner.active {
+  border-color: #10b981;
+}
+
+/* Pulse badge */
+.badge-ping-dot {
+  position: relative;
+  display: inline-flex;
+}
+.badge-ping-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background-color: currentColor;
+  opacity: 0.75;
+  animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+@keyframes ping {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+

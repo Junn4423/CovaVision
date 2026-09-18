@@ -1,0 +1,2381 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { HardDrive, CheckCircle2, Volume2, Sparkles, Send, Radio, Settings2 } from 'lucide-react'
+import { api } from '../services/api'
+import { ROUTES } from '../config/routes'
+import {
+  ATTENDANCE_MODE_OPTIONS,
+  ATTENDANCE_SETTINGS_EVENT,
+  getAttendanceSettings,
+  toCooldownTotalSeconds,
+} from '../services/attendanceSettings'
+import { speakAttendanceOutcome } from '../services/ttsService'
+import { queueOfflineAttendance, getPendingAttendanceQueue } from '../services/deviceDataService'
+import { isLikelyFaceFrame } from '../utils/faceFrameCheck'
+import { normalizeFaceDetectionResponse } from '../utils/faceDetection'
+import CameraSpeakerSettingsModal from '../components/CameraSpeakerSettingsModal'
+import {
+  loadCameraSpeakerConfig,
+  speakAttendanceViaCamera,
+  isCameraSpeakerAvailable,
+  CAMERA_SPEAKER_CONFIG_EVENT,
+} from '../services/cameraSpeakerService'
+import { analyzeVisualMotion, resetVisualMotionDetector } from '../utils/visualMotionDetector'
+
+function isBrowserCameraType(cameraType) {
+  return cameraType === 'browser' || cameraType === 'mobile'
+}
+
+const FIXED_BROWSER_CAMERA_ID = 'fixed-browser-camera'
+const BROWSER_DEVICE_STORAGE_PREFIX = 'attendance-browser-device:'
+// Smart Adaptive Throttling Constants (Cloned from Mobile Anti-Spam Pipeline)
+const PRECHECK_IDLE_INTERVAL_MS = 800
+const PRECHECK_STATIC_PROBE_MS = 4500
+const PRECHECK_AMBIENT_PROBE_MS = 2500
+const PRECHECK_FACE_ACTIVE_MS = 650
+const PRECHECK_LOCKED_DELAY_MS = 1500
+const PRECHECK_READY_STREAK_REQUIRED = 2
+const LIVE_DETECT_MAX_WIDTH = 320
+const LOCATION_COORDINATE_SUFFIX_PATTERN = /\s*\(\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?(?:\s*(?:±|\+\/-|[+\-])?\s*\d+(?:\.\d+)?m)?\s*\)\s*$/iu
+
+
+const FIXED_BROWSER_CAMERA = {
+  id: FIXED_BROWSER_CAMERA_ID,
+  name: 'Camera trình duyệt cố định',
+  camera_type: 'browser',
+  device_index: 0,
+  rtsp_url: '',
+  is_default: false,
+  camera_options: {
+    frame_width: 1280,
+    frame_height: 720,
+    target_fps: 30,
+    buffer_size: 2,
+    frame_drop_count: 0,
+    low_latency: true,
+    facing_mode: 'user',
+    preview_mirror: true,
+    browser_device_id: '',
+  },
+  processing_options: {
+    fps_limit: 30,
+    skip_ai_frames: 1,
+    stream_jpeg_quality: 85,
+    no_motion_delay: 2.0,
+  },
+}
+
+function buildBrowserDeviceStorageKey(cameraId) {
+  return `${BROWSER_DEVICE_STORAGE_PREFIX}${cameraId || FIXED_BROWSER_CAMERA_ID}`
+}
+
+function readSavedBrowserDeviceId(cameraId) {
+  const key = buildBrowserDeviceStorageKey(cameraId)
+  return (localStorage.getItem(key) || '').trim()
+}
+
+function saveBrowserDeviceId(cameraId, deviceId) {
+  const key = buildBrowserDeviceStorageKey(cameraId)
+  const normalized = (deviceId || '').trim()
+  if (normalized) {
+    localStorage.setItem(key, normalized)
+    return
+  }
+  localStorage.removeItem(key)
+}
+
+function withFixedBrowserCamera(list) {
+  const source = Array.isArray(list) ? list : []
+  const hasFixed = source.some(item => item?.id === FIXED_BROWSER_CAMERA_ID)
+  return hasFixed ? source : [FIXED_BROWSER_CAMERA, ...source]
+}
+
+function buildStartPayload(camera) {
+  const rtspUrl = camera.rtsp_url || camera.source || ''
+  return {
+    camera_id: camera.id || undefined,
+    camera_type: camera.camera_type || (rtspUrl ? 'rtsp' : 'device'),
+    device_index: Number(camera.device_index) || 0,
+    rtsp_url: rtspUrl,
+    camera_options: { ...(camera.camera_options || {}) },
+    processing_options: { ...(camera.processing_options || {}) },
+  }
+}
+
+function buildBrowserConstraints(camera, browserDeviceId = '') {
+  const cameraOptions = camera?.camera_options || {}
+  const facingMode = cameraOptions.facing_mode || 'user'
+  const fixedDeviceId = (browserDeviceId || '').trim()
+  const targetFps = Math.max(30, Number(cameraOptions.target_fps) || 30)
+  const idealWidth = Number(cameraOptions.frame_width) || 1280
+  const idealHeight = Number(cameraOptions.frame_height) || 720
+
+  const baseVideoProps = {
+    width: { ideal: idealWidth, max: 1920 },
+    height: { ideal: idealHeight, max: 1080 },
+    frameRate: { ideal: targetFps, max: 60 },
+  }
+
+  const constraints = []
+
+  if (fixedDeviceId) {
+    constraints.push(
+      {
+        audio: false,
+        video: {
+          ...baseVideoProps,
+          deviceId: { exact: fixedDeviceId },
+        },
+      },
+      {
+        audio: false,
+        video: {
+          ...baseVideoProps,
+          deviceId: { ideal: fixedDeviceId },
+        },
+      },
+      {
+        audio: false,
+        video: {
+          deviceId: { exact: fixedDeviceId },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: targetFps, max: 60 },
+        },
+      },
+      {
+        audio: false,
+        video: {
+          deviceId: { exact: fixedDeviceId },
+          frameRate: { ideal: targetFps, max: 60 },
+        },
+      },
+      {
+        audio: false,
+        video: {
+          deviceId: { exact: fixedDeviceId },
+        },
+      },
+    )
+  }
+
+  if (!facingMode || facingMode === 'any') {
+    constraints.push(
+      { audio: false, video: baseVideoProps },
+      { audio: false, video: { ...baseVideoProps, width: { ideal: 1280 }, height: { ideal: 720 } } },
+      { audio: false, video: { frameRate: { ideal: 30, max: 60 } } },
+      { audio: false, video: true },
+    )
+    return constraints
+  }
+
+  const fallbackMode = facingMode === 'environment' ? 'user' : 'environment'
+
+  constraints.push(
+    {
+      audio: false,
+      video: {
+        ...baseVideoProps,
+        facingMode: { ideal: facingMode },
+      },
+    },
+    {
+      audio: false,
+      video: {
+        ...baseVideoProps,
+        facingMode,
+      },
+    },
+    {
+      audio: false,
+      video: {
+        ...baseVideoProps,
+        facingMode: fallbackMode,
+      },
+    },
+    {
+      audio: false,
+      video: {
+        facingMode: { ideal: facingMode },
+        frameRate: { ideal: targetFps, max: 60 },
+      },
+    },
+    { audio: false, video: { frameRate: { ideal: 30, max: 60 } } },
+    { audio: false, video: true },
+  )
+
+  return constraints
+}
+
+async function tryOpenBrowserCamera(constraintsList) {
+  let lastError = null
+
+  for (const constraints of constraintsList) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(constraints)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError || new Error('Không thể mở camera trình duyệt')
+}
+
+function waitForVideoFrame(videoElement, timeoutMs = 7000) {
+  if (!videoElement) {
+    const error = new Error('Không tìm thấy vùng preview video')
+    error.code = 'NO_VIDEO_FRAME'
+    return Promise.reject(error)
+  }
+
+  if (videoElement.readyState >= 2 && videoElement.videoWidth > 0 && videoElement.videoHeight > 0) {
+    return Promise.resolve()
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false
+
+    const cleanup = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeoutHandle)
+      videoElement.removeEventListener('loadedmetadata', checkReady)
+      videoElement.removeEventListener('loadeddata', checkReady)
+      videoElement.removeEventListener('canplay', checkReady)
+      videoElement.removeEventListener('playing', checkReady)
+      videoElement.removeEventListener('resize', checkReady)
+      videoElement.removeEventListener('error', handleVideoError)
+    }
+
+    const handleVideoError = () => {
+      cleanup()
+      const error = new Error('Không tải được luồng video từ camera')
+      error.code = 'NO_VIDEO_FRAME'
+      reject(error)
+    }
+
+    const checkReady = () => {
+      if (videoElement.readyState >= 2 && videoElement.videoWidth > 0 && videoElement.videoHeight > 0) {
+        cleanup()
+        resolve()
+      }
+    }
+
+    const timeoutHandle = setTimeout(() => {
+      cleanup()
+      const error = new Error('Camera đã mở nhưng chưa nhận được khung hình')
+      error.code = 'NO_VIDEO_FRAME'
+      reject(error)
+    }, timeoutMs)
+
+    videoElement.addEventListener('loadedmetadata', checkReady)
+    videoElement.addEventListener('loadeddata', checkReady)
+    videoElement.addEventListener('canplay', checkReady)
+    videoElement.addEventListener('playing', checkReady)
+    videoElement.addEventListener('resize', checkReady)
+    videoElement.addEventListener('error', handleVideoError)
+
+    checkReady()
+  })
+}
+
+async function attachStreamToVideo(videoElement, stream) {
+  if (!videoElement || !stream) {
+    const error = new Error('Không thể gắn camera vào khung preview')
+    error.code = 'NO_VIDEO_FRAME'
+    throw error
+  }
+
+  videoElement.autoplay = true
+  videoElement.muted = true
+  videoElement.playsInline = true
+  videoElement.setAttribute('autoplay', 'true')
+  videoElement.setAttribute('muted', 'true')
+  videoElement.setAttribute('playsinline', 'true')
+  videoElement.setAttribute('webkit-playsinline', 'true')
+  if ('disablePictureInPicture' in videoElement) {
+    videoElement.disablePictureInPicture = true
+  }
+
+  if (videoElement.srcObject !== stream) {
+    videoElement.srcObject = stream
+  }
+
+  try {
+    await videoElement.play()
+  } catch {
+    // Safari can require metadata first before play succeeds.
+  }
+
+  await waitForVideoFrame(videoElement)
+
+  if (videoElement.paused) {
+    try {
+      await videoElement.play()
+    } catch {
+      // Keep fallback silent; readiness check below will raise explicit error.
+    }
+  }
+
+  if (!videoElement.videoWidth || !videoElement.videoHeight) {
+    const error = new Error('Camera đã mở nhưng không có khung hình hiển thị')
+    error.code = 'NO_VIDEO_FRAME'
+    throw error
+  }
+}
+
+function getCameraErrorMessage(error, requiresSecureContext) {
+  const name = error?.name || ''
+
+  if (error?.code === 'NO_VIDEO_FRAME') {
+    return 'Đã cấp quyền camera nhưng không nhận được khung hình. Hãy thử đổi camera trong danh sách hoặc bấm Bật camera lại.'
+  }
+
+  if (requiresSecureContext || name === 'SecurityError') {
+    return 'Trình duyệt iPhone yêu cầu HTTPS (hoặc webview đã cấp quyền) để mở camera trực tiếp.'
+  }
+
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+    return 'Camera đang bị từ chối quyền truy cập. Hãy bật quyền Camera cho trình duyệt/webview rồi thử lại.'
+  }
+
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+    return 'Không tìm thấy camera trên thiết bị.'
+  }
+
+  if (name === 'NotReadableError' || name === 'TrackStartError') {
+    return 'Camera đang được ứng dụng khác sử dụng. Hãy đóng ứng dụng đó rồi thử lại.'
+  }
+
+  if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') {
+    return 'Thông số camera chưa phù hợp với thiết bị. Hãy đổi hướng camera hoặc thử lại.'
+  }
+
+  return error?.message || 'Không thể mở camera trình duyệt'
+}
+
+
+
+function sanitizeDeviceLabel(label, index) {
+  const normalized = (label || '').trim()
+  if (normalized) return normalized
+  return `Camera ${index + 1}`
+}
+
+function describeCamera(camera) {
+  if (!camera) return 'Chưa có cấu hình camera'
+
+  switch (camera.camera_type) {
+    case 'rtsp':
+      return 'Nguồn RTSP'
+    case 'device':
+      return `Camera thiết bị #${camera.device_index || 0}`
+    case 'browser':
+      return 'Webcam trình duyệt'
+    case 'mobile':
+      return 'Camera điện thoại / webview'
+    default:
+      return camera.camera_type || 'Không rõ loại'
+  }
+}
+
+
+
+function cleanLocationDisplayText(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  const head = (raw.split('|')[0] || '').trim()
+  return (head || raw).replace(LOCATION_COORDINATE_SUFFIX_PATTERN, '').trim()
+}
+
+function formatCooldownText(totalSeconds) {
+  const safeSeconds = Math.max(0, Math.trunc(Number(totalSeconds) || 0))
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+  const seconds = safeSeconds % 60
+  const parts = []
+
+  if (hours > 0) {
+    parts.push(`${hours} giờ`)
+  }
+  if (minutes > 0) {
+    parts.push(`${minutes} phút`)
+  }
+  if (seconds > 0 || parts.length === 0) {
+    parts.push(`${seconds} giây`)
+  }
+
+  return parts.join(' ')
+}
+
+function formatCountdownClock(totalSeconds) {
+  const safeSeconds = Math.max(0, Math.trunc(Number(totalSeconds) || 0))
+  const minutes = Math.floor(safeSeconds / 60)
+  const seconds = safeSeconds % 60
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
+function computeContainedVideoRect(containerWidth, containerHeight, frameWidth, frameHeight) {
+  if (!containerWidth || !containerHeight || !frameWidth || !frameHeight) return null
+
+  const containerAspect = containerWidth / containerHeight
+  const frameAspect = frameWidth / frameHeight
+
+  if (frameAspect > containerAspect) {
+    const renderWidth = containerWidth
+    const renderHeight = renderWidth / frameAspect
+    return {
+      renderWidth,
+      renderHeight,
+      offsetX: 0,
+      offsetY: (containerHeight - renderHeight) / 2,
+    }
+  }
+
+  const renderHeight = containerHeight
+  const renderWidth = renderHeight * frameAspect
+  return {
+    renderWidth,
+    renderHeight,
+    offsetX: (containerWidth - renderWidth) / 2,
+    offsetY: 0,
+  }
+}
+
+function projectDetectionBoxToPreview(detection, frameSize, containerSize, mirrored = false) {
+  const bbox = Array.isArray(detection?.bbox) ? detection.bbox : null
+  if (!bbox || bbox.length < 4) return null
+
+  const frameWidth = Number(frameSize?.width) || 0
+  const frameHeight = Number(frameSize?.height) || 0
+  const containerWidth = Number(containerSize?.width) || 0
+  const containerHeight = Number(containerSize?.height) || 0
+  if (!frameWidth || !frameHeight || !containerWidth || !containerHeight) return null
+
+  const fit = computeContainedVideoRect(containerWidth, containerHeight, frameWidth, frameHeight)
+  if (!fit) return null
+
+  let [x1, y1, x2, y2] = bbox.map(value => Number(value) || 0)
+  x1 = Math.max(0, Math.min(frameWidth - 1, x1))
+  y1 = Math.max(0, Math.min(frameHeight - 1, y1))
+  x2 = Math.max(x1 + 1, Math.min(frameWidth, x2))
+  y2 = Math.max(y1 + 1, Math.min(frameHeight, y2))
+
+  if (mirrored) {
+    const mirroredX1 = frameWidth - x2
+    const mirroredX2 = frameWidth - x1
+    x1 = Math.max(0, mirroredX1)
+    x2 = Math.min(frameWidth, mirroredX2)
+  }
+
+  const left = fit.offsetX + (x1 / frameWidth) * fit.renderWidth
+  const top = fit.offsetY + (y1 / frameHeight) * fit.renderHeight
+  const width = ((x2 - x1) / frameWidth) * fit.renderWidth
+  const height = ((y2 - y1) / frameHeight) * fit.renderHeight
+
+  if (width < 2 || height < 2) return null
+  return { left, top, width, height }
+}
+
+export default function Attendance() {
+  const [cameraRunning, setCameraRunning] = useState(false)
+  const [cameraLoading, setCameraLoading] = useState(false)
+  const [cameraRuntimeMode, setCameraRuntimeMode] = useState(null)
+  const [activeCameraId, setActiveCameraId] = useState('')
+  const [cameras, setCameras] = useState([])
+  const [selectedCameraId, setSelectedCameraId] = useState('')
+  const [todayRecords, setTodayRecords] = useState([])
+  const [attendanceBusy, setAttendanceBusy] = useState(false)
+  const [attendanceFeedback, setAttendanceFeedback] = useState(null)
+  const [cooldownPopup, setCooldownPopup] = useState({ open: false, secondsLeft: 0, employeeName: '' })
+  const [lastCapturePreview, setLastCapturePreview] = useState(null)
+  const [liveDetections, setLiveDetections] = useState([])
+  const [liveDetectionFrame, setLiveDetectionFrame] = useState({ width: 0, height: 0 })
+  const [liveDetectionError, setLiveDetectionError] = useState('')
+  const [attendanceSettings, setAttendanceSettings] = useState(() => getAttendanceSettings())
+  const [selectedAttendanceType, setSelectedAttendanceType] = useState('checkin')
+  const [previewViewport, setPreviewViewport] = useState({ width: 0, height: 0 })
+  const [browserDevices, setBrowserDevices] = useState([])
+  const [browserDevicesLoading, setBrowserDevicesLoading] = useState(false)
+  const [selectedBrowserDeviceId, setSelectedBrowserDeviceId] = useState('')
+  const [pendingOfflineCount, setPendingOfflineCount] = useState(0)
+  const [backendSnapshot, setBackendSnapshot] = useState('')
+  const [backendSnapshotError, setBackendSnapshotError] = useState('')
+  const [localRtspStreamUrl, setLocalRtspStreamUrl] = useState('')
+  const [streamKey, setStreamKey] = useState(Date.now())
+  const [activeFaceLock, setActiveFaceLock] = useState(null)
+  const [isSpeakerModalOpen, setIsSpeakerModalOpen] = useState(false)
+  const [speakerConfig, setSpeakerConfig] = useState(() => loadCameraSpeakerConfig())
+
+  useEffect(() => {
+    const handleSpeakerConfigChange = () => {
+      setSpeakerConfig(loadCameraSpeakerConfig())
+    }
+    window.addEventListener(CAMERA_SPEAKER_CONFIG_EVENT, handleSpeakerConfigChange)
+    return () => window.removeEventListener(CAMERA_SPEAKER_CONFIG_EVENT, handleSpeakerConfigChange)
+  }, [])
+
+  // Direct-DOM refs for high-fps RTSP rendering (bypasses React reconciliation)
+  const rtspImgDomRef = useRef(null)
+  const rtspRafIdRef = useRef(0)
+  const rtspLatestFrameRef = useRef('')
+
+  // Persistent canvas context cache to avoid repeated getContext calls
+  const detectCtxRef = useRef(null)
+
+  // FPS counter: direct-DOM to avoid React re-render overhead
+  const fpsCounterRef = useRef(null)
+  const fpsFrameTimesRef = useRef([])
+  const fpsDisplayTimerRef = useRef(null)
+
+  useEffect(() => {
+    function updateQueueCount() {
+      const q = getPendingAttendanceQueue()
+      setPendingOfflineCount(q.length)
+    }
+    updateQueueCount()
+    const interval = setInterval(updateQueueCount, 8000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const imgRef = useRef(null)
+  const previewContainerRef = useRef(null)
+  const videoRef = useRef(null)
+  const canvasRef = useRef(null)
+
+  const cooldownPopupTimerRef = useRef(null)
+  const snapshotTimerRef = useRef(null)
+  const snapshotInFlightRef = useRef(false)
+  const detectInFlightRef = useRef(false)
+  const attendanceBusyRef = useRef(false)
+  const autoAttendanceInFlightRef = useRef(false)
+  const autoLocalAttendanceInFlightKeysRef = useRef(new Set())
+  const autoAttendanceStreakRef = useRef({ userId: null, count: 0 })
+  const autoAttendanceCooldownRef = useRef({})
+  const faceAbsentStreakRef = useRef(0)
+  const readyStreakRef = useRef(0)
+  const readyUserKeyRef = useRef('')
+  const processedFaceLockRef = useRef(null)
+  const browserStreamRef = useRef(null)
+  const detectCanvasRef = useRef(null)
+  const detectTimerRef = useRef(null)
+  // Smart Anti-Spam Throttling Refs (Cloned from Mobile)
+  const lastServerDetectTimeRef = useRef(0)
+  const consecutiveStaticFramesRef = useRef(0)
+  const consecutiveNoFaceStreakRef = useRef(0)
+
+  const selectedCamera = useMemo(
+    () => cameras.find(item => item.id === selectedCameraId) || null,
+    [cameras, selectedCameraId]
+  )
+
+  const activeCamera = useMemo(
+    () => cameras.find(item => item.id === activeCameraId) || null,
+    [activeCameraId, cameras]
+  )
+
+  const browserCameraSelected = Boolean(selectedCamera && isBrowserCameraType(selectedCamera.camera_type))
+  const localRtspCameraActive = cameraRuntimeMode === 'local-rtsp'
+  const clientAttendanceCameraActive = browserCameraSelected || localRtspCameraActive
+  const browserCameraSupported = typeof navigator !== 'undefined'
+    && !!navigator.mediaDevices
+    && typeof navigator.mediaDevices.getUserMedia === 'function'
+    && typeof navigator.mediaDevices.enumerateDevices === 'function'
+  const requiresSecureContext = typeof window !== 'undefined' && !window.isSecureContext
+  const attendanceMode = attendanceSettings.mode === ATTENDANCE_MODE_OPTIONS.autoRecord
+    ? ATTENDANCE_MODE_OPTIONS.autoRecord
+    : ATTENDANCE_MODE_OPTIONS.checkinCheckout
+  const attendanceCooldownSeconds = toCooldownTotalSeconds(attendanceSettings)
+  const autoAttendanceCooldownMs = attendanceMode === ATTENDANCE_MODE_OPTIONS.checkinCheckout && attendanceCooldownSeconds > 0
+    ? attendanceCooldownSeconds * 1000
+    : (attendanceMode === ATTENDANCE_MODE_OPTIONS.checkinCheckout ? AUTO_ATTENDANCE_FALLBACK_COOLDOWN_MS : 0)
+  const activeAttendanceType = attendanceMode === ATTENDANCE_MODE_OPTIONS.checkinCheckout
+    ? selectedAttendanceType
+    : 'auto'
+  const attendanceModeLabel = attendanceMode === ATTENDANCE_MODE_OPTIONS.checkinCheckout
+    ? (selectedAttendanceType === 'checkout' ? 'Checkout' : 'Checkin')
+    : 'Ghi chấm công'
+
+  function clearCooldownPopupTimer() {
+    if (cooldownPopupTimerRef.current) {
+      clearInterval(cooldownPopupTimerRef.current)
+      cooldownPopupTimerRef.current = null
+    }
+  }
+
+  function hideCooldownPopup() {
+    clearCooldownPopupTimer()
+    setCooldownPopup({ open: false, secondsLeft: 0, employeeName: '' })
+  }
+
+  function showCooldownPopup(remainingSeconds, employeeName = '') {
+    const safeSeconds = Math.max(0, Math.ceil(Number(remainingSeconds) || 0))
+    if (safeSeconds <= 0) {
+      hideCooldownPopup()
+      return
+    }
+
+    clearCooldownPopupTimer()
+    setCooldownPopup({
+      open: true,
+      secondsLeft: safeSeconds,
+      employeeName: String(employeeName || '').trim(),
+    })
+
+    cooldownPopupTimerRef.current = setInterval(() => {
+      setCooldownPopup(prev => {
+        if (!prev.open) {
+          return prev
+        }
+
+        const nextSecondsLeft = prev.secondsLeft - 1
+        if (nextSecondsLeft <= 0) {
+          clearCooldownPopupTimer()
+          return { open: false, secondsLeft: 0, employeeName: '' }
+        }
+
+        return {
+          ...prev,
+          secondsLeft: nextSecondsLeft,
+        }
+      })
+    }, 1000)
+  }
+
+  useEffect(() => {
+    initializePage()
+    const attendanceTimer = setInterval(loadTodayRecords, 15000)
+    return () => {
+      clearInterval(attendanceTimer)
+      if (detectTimerRef.current) clearInterval(detectTimerRef.current)
+      clearCooldownPopupTimer()
+      stopBrowserCameraStream()
+      void api.stopLocalCamera()
+    }
+  }, [])
+
+  useEffect(() => {
+    const refreshAttendanceSettings = () => {
+      setAttendanceSettings(getAttendanceSettings())
+    }
+
+    refreshAttendanceSettings()
+    window.addEventListener(ATTENDANCE_SETTINGS_EVENT, refreshAttendanceSettings)
+    window.addEventListener('storage', refreshAttendanceSettings)
+    return () => {
+      window.removeEventListener(ATTENDANCE_SETTINGS_EVENT, refreshAttendanceSettings)
+      window.removeEventListener('storage', refreshAttendanceSettings)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!browserCameraSelected || !selectedCamera) {
+      setBrowserDevices([])
+      setSelectedBrowserDeviceId('')
+      return
+    }
+
+    const preferredId = (
+      readSavedBrowserDeviceId(selectedCamera.id)
+      || selectedCamera.camera_options?.browser_device_id
+      || ''
+    ).trim()
+    setSelectedBrowserDeviceId(preferredId)
+    loadBrowserDevices({ withPermission: false, preferredDeviceId: preferredId })
+  }, [browserCameraSelected, selectedCamera?.id])
+
+  useEffect(() => {
+    if (!browserCameraSupported || typeof navigator === 'undefined' || !navigator.mediaDevices) {
+      return undefined
+    }
+
+    const mediaDevices = navigator.mediaDevices
+    const handleDeviceChange = () => {
+      loadBrowserDevices({ withPermission: false })
+    }
+
+    if (typeof mediaDevices.addEventListener === 'function') {
+      mediaDevices.addEventListener('devicechange', handleDeviceChange)
+      return () => {
+        mediaDevices.removeEventListener('devicechange', handleDeviceChange)
+      }
+    }
+
+    const previousHandler = mediaDevices.ondevicechange
+    mediaDevices.ondevicechange = handleDeviceChange
+    return () => {
+      if (mediaDevices.ondevicechange === handleDeviceChange) {
+        mediaDevices.ondevicechange = previousHandler || null
+      }
+    }
+  }, [browserCameraSupported, selectedCamera?.id])
+
+  useEffect(() => {
+    if (snapshotTimerRef.current) {
+      clearInterval(snapshotTimerRef.current)
+      snapshotTimerRef.current = null
+    }
+    snapshotInFlightRef.current = false
+
+    // Cancel any pending rAF render
+    if (rtspRafIdRef.current) {
+      cancelAnimationFrame(rtspRafIdRef.current)
+      rtspRafIdRef.current = 0
+    }
+
+    // Backend camera streams directly via videoFeedUrl at 25-30fps
+    if (!(cameraRunning && cameraRuntimeMode === 'local-rtsp')) {
+      if (cameraRuntimeMode !== 'backend') {
+        setBackendSnapshot('')
+        setBackendSnapshotError('')
+      }
+      return undefined
+    }
+
+    let cancelled = false
+
+    // Zero-Latency Mode: Browser natively streams from local MJPEG server
+    if (localRtspStreamUrl) {
+      const unsub = api.onLocalCameraFrameTick(() => {
+        if (cancelled) return
+        const now = performance.now()
+        const times = fpsFrameTimesRef.current
+        times.push(now)
+        while (times.length > 0 && now - times[0] > 2000) times.shift()
+      })
+      return () => {
+        cancelled = true
+        unsub()
+      }
+    }
+
+    // Fallback mode if local MJPEG stream is not available: IPC polling
+    let hasFirstFrame = false
+    let lastRenderedFrame = ''
+
+    // High-performance rAF render loop: reads latest frame from ref
+    // and writes directly to <img> DOM node, bypassing React state.
+    const renderFrame = () => {
+      if (cancelled) return
+      const img = rtspImgDomRef.current
+      const frame = rtspLatestFrameRef.current
+      if (img && frame && frame !== lastRenderedFrame) {
+        img.src = frame
+        lastRenderedFrame = frame
+        // Track frame time for FPS counter
+        const now = performance.now()
+        const times = fpsFrameTimesRef.current
+        times.push(now)
+        // Keep only last 2 seconds of timestamps
+        while (times.length > 0 && now - times[0] > 2000) times.shift()
+      }
+      rtspRafIdRef.current = requestAnimationFrame(renderFrame)
+    }
+    rtspRafIdRef.current = requestAnimationFrame(renderFrame)
+
+    // Snapshot fetch loop: runs as fast as IPC allows, writes to ref
+    const fetchLoop = async () => {
+      if (cancelled) return
+      if (!snapshotInFlightRef.current) {
+        snapshotInFlightRef.current = true
+        try {
+          const res = await api.localCameraSnapshot()
+          if (!cancelled && res?.success && res.image_base64) {
+            rtspLatestFrameRef.current = res.image_base64
+            if (!hasFirstFrame) {
+              hasFirstFrame = true
+              // Signal React once so the <img> element appears
+              setBackendSnapshot(res.image_base64)
+              setBackendSnapshotError('')
+            }
+          } else if (!cancelled && !hasFirstFrame) {
+            setBackendSnapshotError(res?.message || 'Đang chờ khung hình từ camera...')
+          }
+        } catch (error) {
+          if (!cancelled && !hasFirstFrame) {
+            setBackendSnapshotError(error?.message || 'Không lấy được khung hình camera')
+          }
+        } finally {
+          snapshotInFlightRef.current = false
+        }
+      }
+      if (!cancelled) {
+        setTimeout(fetchLoop, 0)
+      }
+    }
+    fetchLoop()
+
+    return () => {
+      cancelled = true
+      if (rtspRafIdRef.current) {
+        cancelAnimationFrame(rtspRafIdRef.current)
+        rtspRafIdRef.current = 0
+      }
+      snapshotInFlightRef.current = false
+    }
+  }, [cameraRunning, cameraRuntimeMode, localRtspStreamUrl])
+
+
+
+  useEffect(() => {
+    const container = previewContainerRef.current
+    if (!container) return undefined
+
+    const updateViewport = () => {
+      setPreviewViewport({
+        width: container.clientWidth || 0,
+        height: container.clientHeight || 0,
+      })
+    }
+
+    updateViewport()
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateViewport)
+      return () => {
+        window.removeEventListener('resize', updateViewport)
+      }
+    }
+
+    const observer = new ResizeObserver(updateViewport)
+    observer.observe(container)
+    return () => {
+      observer.disconnect()
+    }
+  }, [browserCameraSelected])
+
+  useEffect(() => {
+    autoAttendanceStreakRef.current = { userId: null, count: 0 }
+    autoAttendanceCooldownRef.current = {}
+    processedFaceLockRef.current = null
+    readyStreakRef.current = 0
+    readyUserKeyRef.current = ''
+    faceAbsentStreakRef.current = 0
+  }, [attendanceMode, selectedAttendanceType, autoAttendanceCooldownMs])
+
+  useEffect(() => {
+    if (detectTimerRef.current) {
+      clearTimeout(detectTimerRef.current)
+      detectTimerRef.current = null
+    }
+
+    detectInFlightRef.current = false
+
+    if (!(cameraRunning && clientAttendanceCameraActive)) {
+      setLiveDetections([])
+      setLiveDetectionFrame({ width: 0, height: 0 })
+      setLiveDetectionError('')
+      autoAttendanceStreakRef.current = { userId: null, count: 0 }
+      autoAttendanceInFlightRef.current = false
+      processedFaceLockRef.current = null
+      readyStreakRef.current = 0
+      readyUserKeyRef.current = ''
+      faceAbsentStreakRef.current = 0
+      return undefined
+    }
+
+    let cancelled = false
+
+    const scheduleNextScan = (delayMs) => {
+      if (cancelled) return
+      if (detectTimerRef.current) clearTimeout(detectTimerRef.current)
+      detectTimerRef.current = setTimeout(detectRealtimeFaces, delayMs)
+    }
+
+    const detectRealtimeFaces = async () => {
+      if (cancelled || detectInFlightRef.current || attendanceBusyRef.current) {
+        scheduleNextScan(PRECHECK_IDLE_INTERVAL_MS)
+        return
+      }
+
+      // For local-rtsp, use the direct DOM ref instead of React-managed ref
+      const video = cameraRuntimeMode === 'browser'
+        ? videoRef.current
+        : (rtspImgDomRef.current || imgRef.current)
+      const detectCanvas = detectCanvasRef.current
+      if (!video || !detectCanvas) {
+        scheduleNextScan(PRECHECK_IDLE_INTERVAL_MS)
+        return
+      }
+
+      const sourceWidth = cameraRuntimeMode === 'browser' ? video.videoWidth : video.naturalWidth
+      const sourceHeight = cameraRuntimeMode === 'browser' ? video.videoHeight : video.naturalHeight
+      if (!sourceWidth || !sourceHeight) {
+        scheduleNextScan(PRECHECK_IDLE_INTERVAL_MS)
+        return
+      }
+      if (cameraRuntimeMode === 'browser' && video.readyState < 2) {
+        scheduleNextScan(PRECHECK_IDLE_INTERVAL_MS)
+        return
+      }
+      if (cameraRuntimeMode === 'local-rtsp' && !video.complete) {
+        scheduleNextScan(PRECHECK_IDLE_INTERVAL_MS)
+        return
+      }
+
+      const now = Date.now()
+
+      // ── TẦNG 1: LOCAL FACE LOCK (Chống spam khi người vừa chấm công còn đứng trước camera) ──
+      const activeLock = processedFaceLockRef.current
+      if (activeLock) {
+        const lockAge = now - (activeLock.lockedAt || 0)
+        // Trong 5 giây đầu sau khi điểm danh thành công:
+        // TUYỆT ĐỐI KHÔNG GỌI SERVER LẶP LẠI! Người này đang nghe loa và bước đi!
+        if (lockAge < 5000) {
+          scheduleNextScan(PRECHECK_LOCKED_DELAY_MS)
+          return
+        }
+        // Quá 8 giây: Giải phóng lock
+        if (lockAge > 8000) {
+          processedFaceLockRef.current = null
+          setActiveFaceLock(null)
+        }
+      }
+
+      // ── TẦNG 2: VISUAL MOTION & SKIN TONE PHÂN TÍCH TRỰC TIẾP TẠI FE (< 0.1ms) ──
+      // Clone cơ chế từ Android AttendanceBackgroundService.kt
+      const motionAnalysis = analyzeVisualMotion(video)
+      const isHumanLikely = motionAnalysis.isLikelyHumanPresent
+      const timeSinceLastServerCall = now - lastServerDetectTimeRef.current
+
+      // Nếu KHÔNG CÓ CHUYỂN ĐỘNG VÀ KHÔNG CÓ MÀU DA NGƯỜI (Phòng tĩnh hoàn toàn, không có người):
+      if (!isHumanLikely) {
+        consecutiveStaticFramesRef.current++
+        faceAbsentStreakRef.current++
+        readyStreakRef.current = 0
+        readyUserKeyRef.current = ''
+
+        // Nếu vắng mặt 2 nhịp: xóa overlay bounding boxes
+        if (faceAbsentStreakRef.current >= 2) {
+          setLiveDetections([])
+          setLiveDetectionError('')
+          if (activeLock) {
+            processedFaceLockRef.current = null
+            setActiveFaceLock(null)
+          }
+        }
+
+        // BẢO VỆ MÁY CHỦ: Khi phòng tĩnh không có người, chỉ gửi 1 request thăm dò nhẹ mỗi 4.5 giây!
+        // Giảm hơn 90% số lượng request vô ích so với trước đây!
+        if (timeSinceLastServerCall < PRECHECK_STATIC_PROBE_MS) {
+          scheduleNextScan(1000)
+          return
+        }
+      } else {
+        consecutiveStaticFramesRef.current = 0
+
+        // Nếu CÓ CHUYỂN ĐỘNG MÔI TRƯỜNG nhưng nhiều nhịp liên tiếp KHÔNG THẤY MẶT NGƯỜI:
+        // (ví dụ quạt trần quay, rèm cửa lay, bóng cây ngoài cửa sổ, người đi xa ngoài hành lang):
+        // Giãn nhịp ra 2.5 giây/lần để máy chủ hoàn toàn êm ru, không bị băm dồn dập!
+        if (consecutiveNoFaceStreakRef.current >= 2 && timeSinceLastServerCall < PRECHECK_AMBIENT_PROBE_MS) {
+          scheduleNextScan(800)
+          return
+        }
+      }
+
+      // ── TẦNG 3: NÉN NHẸ ẢNH GỬI DETECT PRECHECK (320px, JPEG 60%) ──
+      let nextInterval = PRECHECK_IDLE_INTERVAL_MS
+      detectInFlightRef.current = true
+
+      try {
+        const targetWidth = Math.max(160, Math.min(sourceWidth, LIVE_DETECT_MAX_WIDTH))
+        const scale = targetWidth / Math.max(1, sourceWidth)
+        const targetHeight = Math.max(120, Math.round(sourceHeight * scale))
+
+        if (detectCanvas.width !== targetWidth || detectCanvas.height !== targetHeight) {
+          detectCanvas.width = targetWidth
+          detectCanvas.height = targetHeight
+          detectCtxRef.current = null // invalidate cached context on resize
+        }
+
+        if (!detectCtxRef.current) {
+          detectCtxRef.current = detectCanvas.getContext('2d', { willReadFrequently: true })
+        }
+        const context = detectCtxRef.current
+        if (!context) {
+          detectInFlightRef.current = false
+          scheduleNextScan(PRECHECK_IDLE_INTERVAL_MS)
+          return
+        }
+
+        context.drawImage(video, 0, 0, targetWidth, targetHeight)
+
+        const imageBase64 = await new Promise((resolve) => {
+          detectCanvas.toBlob((blob) => {
+            if (!blob) {
+              resolve(detectCanvas.toDataURL('image/jpeg', 0.60))
+              return
+            }
+            const reader = new FileReader()
+            reader.onloadend = () => resolve(reader.result)
+            reader.onerror = () => resolve(detectCanvas.toDataURL('image/jpeg', 0.60))
+            reader.readAsDataURL(blob)
+          }, 'image/jpeg', 0.60)
+        })
+
+        // Fast FE entropy precheck (< 0.1ms): filters out blank wall/ceiling without calling server
+        // Cloned directly from mobile FaceAttendancePanel.tsx line 829
+        if (!isLikelyFaceFrame(imageBase64)) {
+          faceAbsentStreakRef.current += 1
+          readyStreakRef.current = 0
+          readyUserKeyRef.current = ''
+          detectInFlightRef.current = false
+          if (faceAbsentStreakRef.current >= 2) {
+            setLiveDetections([])
+            setLiveDetectionError('')
+          }
+          scheduleNextScan(PRECHECK_STATIC_PROBE_MS)
+          return
+        }
+
+        // Ghi nhận thời điểm gọi server
+        lastServerDetectTimeRef.current = Date.now()
+
+        // ── TẦNG 4: GỌI SERVER INSIGHTFACE SCRFD (Dò tìm siêu tốc ~15ms trên server) ──
+        const rawRes = await api.attendanceDetectFrame({
+          image_base64: imageBase64,
+          max_faces: 3,
+          recognize: true,
+          tolerance: 0.5,
+        })
+
+        if (cancelled) return
+
+        const res = normalizeFaceDetectionResponse(rawRes)
+
+        const hasDetections = Boolean(
+          res?.detected && (
+            (Array.isArray(res?.detections) && res.detections.length > 0) ||
+            res?.detection_bbox ||
+            Number(res?.detected_count || 0) > 0 ||
+            res?.detected_user
+          )
+        )
+
+        // Không có khuôn mặt trong frame:
+        if (!hasDetections) {
+          consecutiveNoFaceStreakRef.current += 1
+          faceAbsentStreakRef.current += 1
+          readyStreakRef.current = 0
+          readyUserKeyRef.current = ''
+
+          if (faceAbsentStreakRef.current >= 2) {
+            processedFaceLockRef.current = null
+            setActiveFaceLock(null)
+            autoLocalAttendanceInFlightKeysRef.current.clear()
+            setLiveDetections([])
+            setLiveDetectionError('')
+          }
+          detectInFlightRef.current = false
+          scheduleNextScan(PRECHECK_AMBIENT_PROBE_MS)
+          return
+        }
+
+        // CÓ KHUÔN MẶT HỢP LỆ! Reset streak không có mặt
+        consecutiveNoFaceStreakRef.current = 0
+        faceAbsentStreakRef.current = 0
+
+        const detections = Array.isArray(res.detections) ? res.detections : []
+        const fallbackBoxes = res.detection_bbox
+          ? [{ bbox: res.detection_bbox, matched: res.matched, name: res.detected_user?.name }]
+          : []
+        setLiveDetections(detections.length > 0 ? detections : fallbackBoxes)
+        setLiveDetectionFrame({
+          width: Number(res.frame_width) || targetWidth,
+          height: Number(res.frame_height) || targetHeight,
+        })
+
+        const detectedUser = res?.detected_user
+        const detectedUserKey = String(detectedUser?.employee_id || detectedUser?.id || detectedUser?.user_id || '').trim()
+
+        // Nếu là NGƯỜI THỨ 2 BƯỚC VÀO (khác với người vừa lock):
+        if (activeLock?.userKey && detectedUserKey && activeLock.userKey !== detectedUserKey) {
+          processedFaceLockRef.current = null
+          setActiveFaceLock(null)
+          autoLocalAttendanceInFlightKeysRef.current.clear()
+        } else if (activeLock) {
+          // Người cũ vẫn đứng trước camera: giữ lock, giãn nhịp 1.5s
+          activeLock.lockedAt = Date.now()
+          readyStreakRef.current = 0
+          readyUserKeyRef.current = ''
+          detectInFlightRef.current = false
+          scheduleNextScan(PRECHECK_LOCKED_DELAY_MS)
+          return
+        }
+
+        setLiveDetectionError('')
+
+        // Nhịp quét khi có mặt người: quét nhanh 650ms để nhận diện mượt mà
+        nextInterval = PRECHECK_FACE_ACTIVE_MS
+
+        // Ready streak verification: require 2 consecutive ticks before auto-submitting
+        if (res?.matched && detectedUser && detectedUserKey && !autoAttendanceInFlightRef.current) {
+          if (readyUserKeyRef.current === detectedUserKey) {
+            readyStreakRef.current += 1
+          } else {
+            readyUserKeyRef.current = detectedUserKey
+            readyStreakRef.current = 1
+          }
+
+          if (readyStreakRef.current >= PRECHECK_READY_STREAK_REQUIRED) {
+            const currentTs = Date.now()
+            const nextAllowedAt = Number(autoAttendanceCooldownRef.current[detectedUserKey] || 0)
+            const cooldownPassed = attendanceMode === ATTENDANCE_MODE_OPTIONS.autoRecord || currentTs >= nextAllowedAt
+
+            if (cooldownPassed && !autoLocalAttendanceInFlightKeysRef.current.has(detectedUserKey)) {
+              autoLocalAttendanceInFlightKeysRef.current.add(detectedUserKey)
+
+              // Khóa mặt ngay lập tức trước khi gọi network để tránh gửi trùng lặp
+              const empName = String(detectedUser?.name || 'nhân viên').trim()
+              const lockObj = {
+                userKey: detectedUserKey,
+                name: empName,
+                lockedAt: Date.now(),
+              }
+              processedFaceLockRef.current = lockObj
+              setActiveFaceLock(lockObj)
+              readyStreakRef.current = 0
+              readyUserKeyRef.current = ''
+              nextInterval = PRECHECK_LOCKED_DELAY_MS
+
+              if (attendanceMode === ATTENDANCE_MODE_OPTIONS.checkinCheckout) {
+                autoAttendanceCooldownRef.current[detectedUserKey] = currentTs + autoAttendanceCooldownMs
+              }
+              autoAttendanceInFlightRef.current = true
+
+              captureBrowserAttendance(activeAttendanceType, {
+                autoTriggered: true,
+                detectedUserId: detectedUserKey,
+              }).finally(() => {
+                autoAttendanceInFlightRef.current = false
+                autoLocalAttendanceInFlightKeysRef.current.delete(detectedUserKey)
+              })
+            }
+          }
+        } else {
+          readyUserKeyRef.current = ''
+          readyStreakRef.current = 0
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error(error)
+          setLiveDetectionError('Không thể nhận diện realtime từ camera')
+        }
+      } finally {
+        detectInFlightRef.current = false
+        scheduleNextScan(nextInterval)
+      }
+    }
+
+    scheduleNextScan(150)
+
+    return () => {
+      cancelled = true
+      if (detectTimerRef.current) {
+        clearTimeout(detectTimerRef.current)
+        detectTimerRef.current = null
+      }
+      detectInFlightRef.current = false
+    }
+  }, [
+    cameraRunning,
+    cameraRuntimeMode,
+    clientAttendanceCameraActive,
+    attendanceMode,
+    activeAttendanceType,
+    autoAttendanceCooldownMs,
+  ])
+
+  useEffect(() => {
+    if (!cameraRunning || cameraRuntimeMode !== 'browser') return
+
+    const videoElement = videoRef.current
+    const browserStream = browserStreamRef.current
+    if (!videoElement || !browserStream) return
+
+    let cancelled = false
+
+    const bindPreview = async () => {
+      try {
+        await attachStreamToVideo(videoElement, browserStream)
+      } catch (error) {
+        if (cancelled) return
+        console.error(error)
+        window.alert(getCameraErrorMessage(error, requiresSecureContext))
+        stopBrowserCameraStream()
+        setCameraRunning(false)
+        setCameraRuntimeMode(null)
+        setActiveCameraId('')
+      }
+    }
+
+    bindPreview()
+
+    // Track browser camera FPS via requestVideoFrameCallback (high precision)
+    let vfcId = null
+    if (typeof videoElement.requestVideoFrameCallback === 'function') {
+      const onVideoFrame = () => {
+        if (cancelled) return
+        const now = performance.now()
+        const times = fpsFrameTimesRef.current
+        times.push(now)
+        while (times.length > 0 && now - times[0] > 2000) times.shift()
+        vfcId = videoElement.requestVideoFrameCallback(onVideoFrame)
+      }
+      vfcId = videoElement.requestVideoFrameCallback(onVideoFrame)
+    }
+
+    return () => {
+      cancelled = true
+      if (vfcId != null && typeof videoElement.cancelVideoFrameCallback === 'function') {
+        videoElement.cancelVideoFrameCallback(vfcId)
+      }
+    }
+  }, [cameraRunning, cameraRuntimeMode, requiresSecureContext])
+
+  // FPS counter display update (direct DOM, every 500ms)
+  useEffect(() => {
+    if (fpsDisplayTimerRef.current) {
+      clearInterval(fpsDisplayTimerRef.current)
+      fpsDisplayTimerRef.current = null
+    }
+
+    if (!cameraRunning) {
+      fpsFrameTimesRef.current = []
+      if (fpsCounterRef.current) fpsCounterRef.current.textContent = ''
+      return undefined
+    }
+
+    fpsDisplayTimerRef.current = setInterval(() => {
+      const el = fpsCounterRef.current
+      if (!el) return
+      const now = performance.now()
+      const times = fpsFrameTimesRef.current
+      // Purge old timestamps
+      while (times.length > 0 && now - times[0] > 2000) times.shift()
+      const fps = times.length > 1
+        ? Math.round((times.length - 1) / ((now - times[0]) / 1000))
+        : 0
+      el.textContent = `${fps} FPS`
+      // Color coding
+      if (fps >= 24) {
+        el.style.color = '#34d399'  // emerald-400
+      } else if (fps >= 15) {
+        el.style.color = '#fbbf24'  // amber-400
+      } else {
+        el.style.color = '#f87171'  // red-400
+      }
+    }, 500)
+
+    return () => {
+      if (fpsDisplayTimerRef.current) {
+        clearInterval(fpsDisplayTimerRef.current)
+        fpsDisplayTimerRef.current = null
+      }
+    }
+  }, [cameraRunning])
+
+  async function initializePage() {
+    await Promise.all([
+      checkCameraStatus(),
+      loadCameras(),
+      loadTodayRecords(),
+    ])
+  }
+
+  function stopBrowserCameraStream() {
+    if (browserStreamRef.current) {
+      browserStreamRef.current.getTracks().forEach(track => track.stop())
+      browserStreamRef.current = null
+    }
+
+    if (videoRef.current) {
+      videoRef.current.pause()
+      videoRef.current.srcObject = null
+    }
+  }
+
+  async function checkCameraStatus() {
+    try {
+      const res = await api.cameraStatus()
+      if (!res.success) return
+      setCameraRunning(!!res.running)
+      setCameraRuntimeMode(res.running ? 'backend' : null)
+      setActiveCameraId(res.camera_id || '')
+      if (res.camera_id) setSelectedCameraId(res.camera_id)
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  async function loadCameras() {
+    try {
+      const res = await api.getCameras()
+      if (!res.success) return
+      const list = withFixedBrowserCamera(res.cameras || [])
+      setCameras(list)
+
+      if (list.length === 0) {
+        setSelectedCameraId('')
+        return
+      }
+
+      setSelectedCameraId(currentId => {
+        if (currentId && list.some(item => item.id === currentId)) return currentId
+        return list.find(item => item.is_default)?.id || list[0].id
+      })
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  async function loadTodayRecords() {
+    try {
+      const res = await api.getTodayAttendance()
+      if (res.success) setTodayRecords(res.data || [])
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+
+
+  async function loadBrowserDevices({ withPermission = false, preferredDeviceId = '' } = {}) {
+    if (!browserCameraSupported || !navigator.mediaDevices?.enumerateDevices) {
+      setBrowserDevices([])
+      return []
+    }
+
+    setBrowserDevicesLoading(true)
+    try {
+      if (withPermission) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+          stream.getTracks().forEach(track => track.stop())
+        } catch {
+          // Ignore permission errors here; actual start flow handles it with user-facing message.
+        }
+      }
+
+      let allDevices = await navigator.mediaDevices.enumerateDevices()
+      let videoInputs = allDevices.filter(item => item.kind === 'videoinput')
+
+      if (withPermission && videoInputs.some(item => !(item.label || '').trim())) {
+        allDevices = await navigator.mediaDevices.enumerateDevices()
+        videoInputs = allDevices.filter(item => item.kind === 'videoinput')
+      }
+
+      const normalized = videoInputs.map((device, index) => ({
+        id: device.deviceId,
+        label: sanitizeDeviceLabel(device.label, index),
+      }))
+
+      setBrowserDevices(normalized)
+
+      const preferred = (preferredDeviceId || selectedBrowserDeviceId || '').trim()
+      if (preferred && normalized.some(item => item.id === preferred)) {
+        setSelectedBrowserDeviceId(preferred)
+      } else if (selectedBrowserDeviceId && !normalized.some(item => item.id === selectedBrowserDeviceId)) {
+        setSelectedBrowserDeviceId('')
+      }
+
+      return normalized
+    } catch (error) {
+      console.error(error)
+      return []
+    } finally {
+      setBrowserDevicesLoading(false)
+    }
+  }
+
+  function handleBrowserDeviceChange(deviceId) {
+    const normalized = (deviceId || '').trim()
+    setSelectedBrowserDeviceId(normalized)
+    if (selectedCamera?.id) {
+      saveBrowserDeviceId(selectedCamera.id, normalized)
+    }
+  }
+
+  async function handleStartBrowserCamera() {
+    if (!selectedCamera) return
+    if (!browserCameraSupported) {
+      window.alert('Thiết bị hoặc trình duyệt hiện tại chưa hỗ trợ mở camera trực tiếp bằng getUserMedia.')
+      return
+    }
+
+    setCameraLoading(true)
+    setAttendanceFeedback(null)
+    setLastCapturePreview(null)
+    setLiveDetections([])
+    setLiveDetectionFrame({ width: 0, height: 0 })
+    setLiveDetectionError('')
+
+    try {
+      if (cameraRuntimeMode === 'backend') {
+        await api.stopCamera()
+      } else if (cameraRuntimeMode === 'local-rtsp') {
+        await api.stopLocalCamera()
+      }
+
+      stopBrowserCameraStream()
+
+      await loadBrowserDevices({ withPermission: true })
+      const preferredDeviceId = (selectedBrowserDeviceId || '').trim()
+
+      const stream = await tryOpenBrowserCamera(buildBrowserConstraints(selectedCamera, preferredDeviceId))
+
+      const track = stream.getVideoTracks()?.[0]
+      if (!track || track.readyState !== 'live') {
+        stream.getTracks().forEach(item => item.stop())
+        const error = new Error('Không thể lấy luồng video trực tiếp từ camera')
+        error.code = 'NO_VIDEO_FRAME'
+        throw error
+      }
+
+      browserStreamRef.current = stream
+
+      if (track && typeof track.applyConstraints === 'function') {
+        try {
+          await track.applyConstraints({ frameRate: { ideal: 30, max: 60 } })
+        } catch {
+          // ignore if hardware driver does not support dynamic constraint update
+        }
+      }
+
+      const openedDeviceId = (track?.getSettings?.().deviceId || preferredDeviceId || '').trim()
+      if (openedDeviceId && selectedCamera?.id) {
+        setSelectedBrowserDeviceId(openedDeviceId)
+        saveBrowserDeviceId(selectedCamera.id, openedDeviceId)
+      }
+
+      setCameraRunning(true)
+      setCameraRuntimeMode('browser')
+      setActiveCameraId(selectedCamera.id || '')
+    } catch (error) {
+      const message = getCameraErrorMessage(error, requiresSecureContext)
+      window.alert(message)
+    }
+
+    setCameraLoading(false)
+  }
+
+  async function handleStartCamera() {
+    if (!selectedCamera) {
+      window.alert('Vui lòng chọn camera đã lưu trước khi bật.')
+      return
+    }
+
+    if (browserCameraSelected) {
+      await handleStartBrowserCamera()
+      return
+    }
+
+    setCameraLoading(true)
+    setAttendanceFeedback(null)
+    setLastCapturePreview(null)
+    setLiveDetections([])
+    setLiveDetectionFrame({ width: 0, height: 0 })
+    setLiveDetectionError('')
+    try {
+      stopBrowserCameraStream()
+      const startPayload = buildStartPayload(selectedCamera)
+      let localFailure = ''
+
+      if (selectedCamera.camera_type === 'rtsp') {
+        const localRes = await api.startLocalCamera(startPayload)
+        if (localRes?.success) {
+          setCameraRunning(true)
+          setCameraRuntimeMode('local-rtsp')
+          setActiveCameraId(selectedCamera.id || '')
+          if (localRes.stream_url) {
+            setLocalRtspStreamUrl(`${localRes.stream_url}?t=${Date.now()}`)
+          }
+          return
+        }
+        localFailure = localRes?.message || ''
+      }
+
+      const res = await api.startCamera(startPayload)
+      if (res.success) {
+        setCameraRunning(true)
+        setCameraRuntimeMode('backend')
+        setStreamKey(Date.now())
+        setActiveCameraId(selectedCamera.id || res.camera_id || '')
+      } else {
+        window.alert(res.message || localFailure || 'Không thể bật camera')
+      }
+    } catch (error) {
+      window.alert(error?.message || 'Không thể kết nối backend')
+    } finally {
+      setCameraLoading(false)
+    }
+  }
+
+  async function handleStopCamera() {
+    setCameraLoading(true)
+    try {
+      if (cameraRuntimeMode === 'browser') {
+        stopBrowserCameraStream()
+      } else if (cameraRuntimeMode === 'local-rtsp') {
+        await api.stopLocalCamera()
+        setLocalRtspStreamUrl('')
+      } else {
+        await api.stopCamera()
+      }
+      resetVisualMotionDetector()
+      lastServerDetectTimeRef.current = 0
+      consecutiveStaticFramesRef.current = 0
+      consecutiveNoFaceStreakRef.current = 0
+      processedFaceLockRef.current = null
+      setActiveFaceLock(null)
+      setCameraRunning(false)
+      setCameraRuntimeMode(null)
+      setActiveCameraId('')
+      setLastCapturePreview(null)
+      setLiveDetections([])
+      setLiveDetectionFrame({ width: 0, height: 0 })
+      setLiveDetectionError('')
+    } catch (error) {
+      console.error(error)
+    }
+    setCameraLoading(false)
+  }
+
+  async function captureBrowserAttendance(attendanceType = 'checkin', options = {}) {
+    const detectedUserId = String(options?.detectedUserId || '').trim()
+
+    if (!cameraRunning || !clientAttendanceCameraActive) {
+      window.alert('Hãy bật camera trước khi điểm danh.')
+      return { success: false }
+    }
+
+    // Use direct DOM ref for RTSP mode for faster source access
+    const source = cameraRuntimeMode === 'browser'
+      ? videoRef.current
+      : (rtspImgDomRef.current || imgRef.current)
+    if (!source || !canvasRef.current) {
+      window.alert('Camera chưa sẵn sàng để chụp.')
+      return { success: false }
+    }
+
+    const sourceWidth = cameraRuntimeMode === 'browser' ? source.videoWidth : source.naturalWidth
+    const sourceHeight = cameraRuntimeMode === 'browser' ? source.videoHeight : source.naturalHeight
+    if (!sourceWidth || !sourceHeight || (cameraRuntimeMode === 'browser' && source.readyState < 2)) {
+      window.alert('Luồng camera chưa sẵn sàng, vui lòng thử lại.')
+      return { success: false }
+    }
+
+    const captureTargetWidth = Math.min(640, Math.max(320, sourceWidth))
+    const captureScale = captureTargetWidth / Math.max(1, sourceWidth)
+    const captureTargetHeight = Math.round(sourceHeight * captureScale)
+
+    const canvas = canvasRef.current
+    if (canvas.width !== captureTargetWidth || canvas.height !== captureTargetHeight) {
+      canvas.width = captureTargetWidth
+      canvas.height = captureTargetHeight
+    }
+
+    const context = canvas.getContext('2d', { willReadFrequently: true })
+    context.drawImage(source, 0, 0, captureTargetWidth, captureTargetHeight)
+    attendanceBusyRef.current = true
+    setAttendanceBusy(true)
+
+    if (!options?.autoTriggered) {
+      setAttendanceFeedback(null)
+      setLastCapturePreview(null)
+    }
+
+    const rawAttendanceType = String(attendanceType || 'checkin').toLowerCase()
+    const normalizedAttendanceType = rawAttendanceType === 'checkout'
+      ? 'checkout'
+      : (rawAttendanceType === 'auto' ? 'auto' : 'checkin')
+    const actionLabel = normalizedAttendanceType === 'checkout'
+      ? 'Checkout'
+      : (normalizedAttendanceType === 'auto' ? 'Ghi chấm công' : 'Checkin')
+
+    try {
+      // Use async toBlob for attendance capture too (non-blocking)
+      const captureImageBase64 = await new Promise((resolve) => {
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            resolve(canvas.toDataURL('image/jpeg', 0.75))
+            return
+          }
+          const reader = new FileReader()
+          reader.onloadend = () => resolve(reader.result)
+          reader.onerror = () => resolve(canvas.toDataURL('image/jpeg', 0.75))
+          reader.readAsDataURL(blob)
+        }, 'image/jpeg', 0.75)
+      })
+      const payload = {
+        image_base64: captureImageBase64,
+        include_preview: true,
+        attendance_type: normalizedAttendanceType,
+        attendance_cooldown_seconds: attendanceCooldownSeconds,
+      }
+
+
+
+      const res = await api.attendanceImageBase64(payload)
+      const capturePreview = res?.preview_image_base64
+        ? {
+          imageBase64: res.preview_image_base64,
+          bbox: Array.isArray(res.detection_bbox) ? res.detection_bbox : null,
+          faceCount: Number.isFinite(Number(res.face_count)) ? Number(res.face_count) : null,
+        }
+        : null
+      if (capturePreview) {
+        setLastCapturePreview(capturePreview)
+      }
+
+      if (res.success) {
+        const employeeName = String(res?.user?.name || '').trim()
+        if (detectedUserId) {
+          const lockObj = {
+            userKey: detectedUserId,
+            name: employeeName,
+            lockedAt: Date.now(),
+          }
+          processedFaceLockRef.current = lockObj
+          setActiveFaceLock(lockObj)
+        }
+
+        let successMessage = ''
+        if (attendanceMode === ATTENDANCE_MODE_OPTIONS.autoRecord || normalizedAttendanceType === 'auto') {
+          successMessage = employeeName
+            ? `Đã quét mặt thành công cho ${employeeName}`
+            : 'Đã quét mặt thành công'
+        } else if (normalizedAttendanceType === 'checkout') {
+          successMessage = employeeName
+            ? `Đã Checkout thành công cho ${employeeName}`
+            : 'Đã Checkout thành công'
+        } else {
+          successMessage = employeeName
+            ? `Đã Checkin thành công cho ${employeeName}`
+            : 'Đã Checkin thành công'
+        }
+
+        hideCooldownPopup()
+        setAttendanceFeedback({
+          type: 'success',
+          message: successMessage,
+          detail: cleanLocationDisplayText(res.location_text),
+          user: res?.user || null,
+          time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        })
+
+        // Phát giọng nói tiếng Việt chào mừng nhân viên
+        // Cơ chế loại trừ (Mutual Exclusivity):
+        // - Nếu bật Loa Camera: phát qua củ loa của Camera RTSP ngoài, KHÔNG phát qua loa máy tính (PC)
+        // - Nếu tắt Loa Camera: phát qua loa máy tính (PC) nếu tts_enabled !== 'false'
+        const currentSpeakerConfig = loadCameraSpeakerConfig()
+        if (currentSpeakerConfig.enabled) {
+          let targetCam = cameras.find(c => c.id === currentSpeakerConfig.cameraId) || selectedCamera
+          let speakerInfo = isCameraSpeakerAvailable(targetCam)
+          if (!speakerInfo.available || !speakerInfo.ip) {
+            const rtspCam = cameras.find(c => isCameraSpeakerAvailable(c).available)
+            if (rtspCam) {
+              targetCam = rtspCam
+              speakerInfo = isCameraSpeakerAvailable(rtspCam)
+            }
+          }
+
+          const targetCameraId = currentSpeakerConfig.cameraId || speakerInfo.cameraId || targetCam?.id
+
+          console.log(`[Attendance] 📢 Phát loa camera ngoài cho "${employeeName}" qua API`)
+          speakAttendanceViaCamera(employeeName, normalizedAttendanceType, res?.is_late, {
+            cameraId: targetCameraId,
+            volume: currentSpeakerConfig.volume,
+            profileId: currentSpeakerConfig.profileId,
+          }).then((speakRes) => {
+            console.log('[Attendance] Kết quả phát loa camera:', speakRes)
+          }).catch((err) => {
+            console.error('[Attendance] Lỗi phát loa camera:', err)
+          })
+        } else if (localStorage.getItem('facecheck.tts_enabled') !== 'false') {
+          console.log(`[Attendance] 💻 Phát loa máy tính (PC) cho "${employeeName}"`)
+          speakAttendanceOutcome(employeeName, normalizedAttendanceType, res?.is_late)
+        }
+
+        await loadTodayRecords()
+        return { success: true, response: res }
+      } else {
+        const failureMessage = res.message || `Không thể ${actionLabel} bằng camera trình duyệt`
+        const lowerFailureMessage = failureMessage.toLowerCase()
+        const cooldownRemainingRaw = Number(res?.cooldown_remaining_seconds)
+        const cooldownRemainingSeconds = Number.isFinite(cooldownRemainingRaw)
+          ? Math.max(0, Math.ceil(cooldownRemainingRaw))
+          : 0
+        const isCooldownMessage = (
+          lowerFailureMessage.includes('chỉ được')
+          || lowerFailureMessage.includes('gần đây')
+          || lowerFailureMessage.includes('erp gần')
+          || cooldownRemainingSeconds > 0
+        )
+
+        if (isCooldownMessage) {
+          const popupSeconds = cooldownRemainingSeconds > 0
+            ? cooldownRemainingSeconds
+            : Math.max(1, Math.ceil(attendanceCooldownSeconds || 0))
+          const employeeName = String(res?.user?.name || '').trim()
+
+          showCooldownPopup(popupSeconds, employeeName)
+          if (detectedUserId) {
+            const now = Date.now()
+            const currentNextAllowedAt = Number(autoAttendanceCooldownRef.current[detectedUserId] || 0)
+            const nextAllowedAt = now + (popupSeconds * 1000)
+            autoAttendanceCooldownRef.current[detectedUserId] = Math.max(currentNextAllowedAt, nextAllowedAt)
+            const lockObj = {
+              userKey: detectedUserId,
+              name: employeeName,
+              lockedAt: Date.now(),
+            }
+            processedFaceLockRef.current = lockObj
+            setActiveFaceLock(lockObj)
+          }
+        } else {
+          if (detectedUserId) {
+            autoAttendanceCooldownRef.current[detectedUserId] = Date.now() + 3000
+          }
+          processedFaceLockRef.current = null
+          setActiveFaceLock(null)
+          readyUserKeyRef.current = ''
+          readyStreakRef.current = 0
+        }
+
+        setAttendanceFeedback({
+          type: 'error',
+          message: isCooldownMessage ? 'Đang bị giới hạn quét mặt' : failureMessage,
+          detail: cleanLocationDisplayText(res?.location_text),
+        })
+        return { success: false, response: res, cooldown: isCooldownMessage }
+      }
+    } catch (error) {
+      if (detectedUserId) {
+        autoAttendanceCooldownRef.current[detectedUserId] = Date.now() + 3000
+      }
+      processedFaceLockRef.current = null
+      setActiveFaceLock(null)
+      readyUserKeyRef.current = ''
+      readyStreakRef.current = 0
+      setAttendanceFeedback({
+        type: 'error',
+        message: error?.message || 'Không thể gửi ảnh điểm danh',
+        detail: '',
+      })
+      return { success: false, error }
+    } finally {
+      attendanceBusyRef.current = false
+      setAttendanceBusy(false)
+    }
+  }
+
+  function handleVideoError() {
+    if (!cameraRunning || !imgRef.current || !['backend', 'local-rtsp'].includes(cameraRuntimeMode)) return
+    setBackendSnapshot('')
+    setBackendSnapshotError('Khung hình camera không hợp lệ, đang thử lại...')
+  }
+
+
+
+  const showActiveCameraWarning = cameraRunning && activeCameraId && selectedCameraId && activeCameraId !== selectedCameraId
+  const previewMirror = !!selectedCamera?.camera_options?.preview_mirror
+  const activeBrowserDeviceLabel = browserDevices.find(item => item.id === selectedBrowserDeviceId)?.label || ''
+  const liveOverlayBoxes = useMemo(() => {
+    if (!liveDetections.length) return []
+
+    return liveDetections
+      .map((detection, index) => {
+        const rect = projectDetectionBoxToPreview(
+          detection,
+          liveDetectionFrame,
+          previewViewport,
+          previewMirror,
+        )
+        if (!rect) return null
+
+        const name = detection?.matched && detection?.name && detection.name !== 'Unknown'
+          ? detection.name
+          : ''
+        const label = name || 'Đang nhận diện'
+        const stableId = name ? `user-${name}` : `face-${index}`
+
+        return {
+          id: stableId,
+          rect,
+          label,
+          matched: Boolean(detection?.matched),
+        }
+      })
+      .filter(Boolean)
+  }, [liveDetections, liveDetectionFrame, previewViewport, previewMirror])
+
+  const liveRecognizedNames = useMemo(() => {
+    const names = []
+    for (const detection of liveDetections) {
+      if (!detection?.matched) continue
+      const name = String(detection?.name || '').trim()
+      if (!name || name === 'Unknown') continue
+      if (!names.includes(name)) names.push(name)
+    }
+    return names
+  }, [liveDetections])
+
+  return (
+    <div className="grid xl:grid-cols-[1.1fr_0.9fr] gap-4 lg:gap-6">
+      {cooldownPopup.open && (
+        <div className="fixed right-4 top-4 z-50 w-[min(92vw,22rem)] rounded-2xl border border-amber-200 bg-amber-50 shadow-xl px-4 py-3 text-amber-800">
+          <p className="text-sm font-semibold">Đang bị giới hạn quét mặt</p>
+          <p className="mt-1 text-sm">
+            Thời gian cho lần quét tiếp theo: <span className="font-bold">{formatCountdownClock(cooldownPopup.secondsLeft)}</span>
+          </p>
+          {cooldownPopup.employeeName && (
+            <p className="mt-1 text-xs text-amber-700">Nhân viên: {cooldownPopup.employeeName}</p>
+          )}
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
+        <div className="px-4 sm:px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Bắt đầu chấm công toàn công ty</h1>
+            <p className="text-sm text-slate-500 mt-1">
+              Nhận diện khuôn mặt tự động qua camera
+            </p>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            {pendingOfflineCount > 0 && (
+              <Link
+                to={ROUTES.deviceData}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-100 transition-colors shadow-sm"
+                title="Xem các bản ghi offline chờ gửi lên ERP"
+              >
+                <HardDrive size={13} className="text-amber-600" />
+                <span>Chờ gửi ERP ({pendingOfflineCount})</span>
+              </Link>
+            )}
+
+            {/* Nút Cài đặt Loa Camera / Loa PC */}
+            <button
+              type="button"
+              onClick={() => setIsSpeakerModalOpen(true)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all shadow-xs ${
+                speakerConfig.enabled
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+              title="Cài đặt phát loa câu chào: Loa Máy tính (PC) hoặc Loa ngoài Camera (RTSP)"
+            >
+              {speakerConfig.enabled ? (
+                <Radio size={13} className="text-emerald-600 animate-pulse" />
+              ) : (
+                <Volume2 size={13} className="text-slate-500" />
+              )}
+              <span>
+                {speakerConfig.enabled ? `Loa Camera (${speakerConfig.volume}%)` : 'Loa Máy tính'}
+              </span>
+            </button>
+
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <span className={`w-2.5 h-2.5 rounded-full ${cameraRunning ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+              <span className={cameraRunning ? 'text-emerald-700' : 'text-slate-500'}>
+                {cameraRunning
+                  ? (cameraRuntimeMode === 'browser'
+                    ? 'Camera trình duyệt đang chạy'
+                    : (cameraRuntimeMode === 'local-rtsp' ? 'Camera RTSP LAN đang chạy' : 'Camera hệ thống đang chạy'))
+                  : 'Camera đang tắt'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 sm:p-5 space-y-4">
+          <div
+            ref={previewContainerRef}
+            className={`relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 ${
+              browserCameraSelected
+                ? 'aspect-[3/4] min-h-[420px] max-h-[78vh] sm:aspect-[4/5] sm:min-h-[520px] lg:aspect-video lg:min-h-0 lg:max-h-none'
+                : 'aspect-video'
+            }`}
+          >
+            {cameraRunning && (cameraRuntimeMode === 'backend' || cameraRuntimeMode === 'local-rtsp') ? (
+              cameraRuntimeMode === 'backend' ? (
+                <img
+                  ref={imgRef}
+                  src={`${api.videoFeedUrl()}?t=${streamKey}`}
+                  alt="Video feed"
+                  className="w-full h-full object-cover"
+                  onError={handleVideoError}
+                />
+              ) : localRtspStreamUrl ? (
+                <img
+                  ref={(node) => {
+                    imgRef.current = node
+                    rtspImgDomRef.current = node
+                  }}
+                  src={localRtspStreamUrl}
+                  crossOrigin="anonymous"
+                  alt="Video feed"
+                  className="w-full h-full object-cover"
+                  onError={handleVideoError}
+                />
+              ) : backendSnapshot ? (
+                <img
+                  ref={(node) => {
+                    imgRef.current = node
+                    rtspImgDomRef.current = node
+                  }}
+                  src={backendSnapshot}
+                  alt="Video feed"
+                  className="w-full h-full object-cover"
+                  style={{ willChange: 'contents' }}
+                  onError={handleVideoError}
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-slate-300 text-sm bg-slate-900 text-center px-6">
+                  {backendSnapshotError || 'Đang chờ khung hình từ camera...'}
+                </div>
+              )
+            ) : cameraRunning && cameraRuntimeMode === 'browser' ? (
+              <video
+                ref={videoRef}
+                autoPlay
+                muted
+                playsInline
+                className={`w-full h-full ${browserCameraSelected ? 'object-contain' : 'object-cover'}`}
+                style={{
+                  transform: previewMirror ? 'scaleX(-1) translateZ(0)' : 'translateZ(0)',
+                  willChange: 'transform',
+                }}
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-slate-300 text-sm bg-slate-900 text-center px-6">
+                {browserCameraSelected
+                  ? 'Bật camera để xem luồng từ webcam hoặc điện thoại ngay trên thiết bị hiện tại'
+                  : 'Bật camera để xem luồng hình trực tiếp'}
+              </div>
+            )}
+
+            {/* FPS Counter Badge — top-right corner */}
+            {cameraRunning && (
+              <div className="pointer-events-none absolute top-3 right-3 z-30">
+                <div
+                  className="px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-sm border border-white/10 shadow-md text-[11px] font-mono font-bold tabular-nums"
+                  style={{ minWidth: '52px', textAlign: 'center' }}
+                >
+                  <span ref={fpsCounterRef} style={{ color: '#34d399' }}>-- FPS</span>
+                </div>
+              </div>
+            )}
+
+            {/* Floating Top Status Pill */}
+            {cameraRunning && (
+              <div className="pointer-events-none absolute top-3.5 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-900/85 backdrop-blur-md border border-white/10 shadow-lg text-xs text-white max-w-[90%]">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${
+                  activeFaceLock
+                    ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'
+                    : liveDetections.length > 0
+                    ? 'bg-cyan-400 animate-pulse'
+                    : 'bg-slate-500'
+                }`} />
+                <span className="font-medium tracking-wide truncate">
+                  {activeFaceLock
+                    ? `Đã điểm danh cho ${activeFaceLock.name}`
+                    : autoAttendanceInFlightRef.current
+                    ? 'Đang xác thực điểm danh...'
+                    : liveRecognizedNames.length > 0
+                    ? `Đang nhận diện: ${liveRecognizedNames.join(', ')}`
+                    : liveDetections.length > 0
+                    ? 'Đang quét khuôn mặt...'
+                    : 'Vui lòng đưa khuôn mặt vào khung hình'}
+                </span>
+              </div>
+            )}
+
+            {browserCameraSelected && cameraRunning && cameraRuntimeMode === 'browser' && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <div className={`w-[70%] h-[72%] max-w-[360px] rounded-[36%] border-2 transition-colors duration-300 shadow-[0_0_0_9999px_rgba(2,6,23,0.25)] ${
+                  activeFaceLock
+                    ? 'border-emerald-400'
+                    : liveDetections.length > 0
+                    ? 'border-cyan-400/80'
+                    : 'border-white/60'
+                }`} />
+              </div>
+            )}
+
+            {browserCameraSelected && cameraRunning && cameraRuntimeMode === 'browser' && liveOverlayBoxes.length > 0 && (
+              <div className="pointer-events-none absolute inset-0">
+                {liveOverlayBoxes.map(box => (
+                  <div
+                    key={box.id}
+                    className={`absolute border-2 rounded-xl transition-all duration-150 ease-out ${
+                      box.matched
+                        ? 'border-emerald-400 bg-emerald-400/10 shadow-[0_0_15px_rgba(52,211,153,0.35)]'
+                        : 'border-cyan-400/90 bg-cyan-400/10'
+                    }`}
+                    style={{
+                      left: `${box.rect.left}px`,
+                      top: `${box.rect.top}px`,
+                      width: `${box.rect.width}px`,
+                      height: `${box.rect.height}px`,
+                      transitionProperty: 'left, top, width, height',
+                      willChange: 'left, top, width, height',
+                    }}
+                  >
+                    <span className={`absolute -top-6 left-0 px-2 py-0.5 rounded-md text-[11px] font-semibold text-white whitespace-nowrap shadow-sm transition-colors duration-150 ${
+                      box.matched ? 'bg-emerald-500' : 'bg-cyan-600'
+                    }`}>
+                      {box.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Floating Completion Banner (Cloned from Mobile) */}
+            {activeFaceLock && (
+              <div className="pointer-events-none absolute bottom-4 left-4 right-4 z-20 flex items-center gap-3.5 p-3.5 rounded-2xl bg-slate-900/92 backdrop-blur-lg border border-emerald-500/40 shadow-2xl transition-all duration-300">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-400 shrink-0">
+                  <CheckCircle2 size={24} className="text-emerald-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-white truncate">
+                    Đã điểm danh: <span className="text-emerald-300">{activeFaceLock.name}</span>
+                  </p>
+                  <p className="text-xs text-slate-300 truncate mt-0.5">
+                    Vui lòng rời khỏi khung hình để tiếp tục lượt tiếp theo
+                  </p>
+                </div>
+                <div className="px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 text-xs font-bold uppercase tracking-wider shrink-0 border border-emerald-500/30">
+                  Hoàn tất
+                </div>
+              </div>
+            )}
+          </div>
+
+          {clientAttendanceCameraActive && cameraRunning && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs sm:text-sm text-slate-700 space-y-2">
+              {attendanceMode === ATTENDANCE_MODE_OPTIONS.checkinCheckout ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAttendanceType('checkin')}
+                    disabled={attendanceBusy}
+                    className={`w-full sm:w-auto px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm ${
+                      selectedAttendanceType === 'checkin'
+                        ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                        : 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50'
+                    }`}
+                  >
+                    Chế độ Checkin
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAttendanceType('checkout')}
+                    disabled={attendanceBusy}
+                    className={`w-full sm:w-auto px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm ${
+                      selectedAttendanceType === 'checkout'
+                        ? 'bg-amber-500 text-white hover:bg-amber-600'
+                        : 'bg-white text-amber-700 border border-amber-200 hover:bg-amber-50'
+                    }`}
+                  >
+                    Chế độ Checkout
+                  </button>
+                </div>
+              ) : (
+                <p className="text-slate-600">
+                  Đang bật chế độ ghi chấm công tự động: mỗi lần quét khuôn mặt hợp lệ sẽ được lưu thành một lần ghi chấm công độc lập.
+                </p>
+              )}
+
+              <p className="text-slate-500">
+                Trạng thái đang ghi: <span className="font-semibold text-slate-700">{attendanceModeLabel}</span>. Hệ thống tự chụp và gửi khi phát hiện khuôn mặt hợp lệ.
+              </p>
+              <p className="text-slate-500">
+                Giới hạn thời gian giữa 2 lần ghi: <span className="font-semibold text-slate-700">{formatCooldownText(attendanceCooldownSeconds)}</span>.
+              </p>
+            </div>
+          )}
+
+          {browserCameraSelected && (
+            <p className="text-xs sm:text-sm text-slate-500">
+              Khung preview trên điện thoại đã chuyển sang tỉ lệ dọc. Hãy giữ toàn bộ khuôn mặt nằm trong vùng bo tròn để tăng độ chính xác khi hệ thống tự nhận diện điểm danh.
+            </p>
+          )}
+
+          {clientAttendanceCameraActive && cameraRunning && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3.5 py-2.5 text-xs sm:text-sm text-slate-700 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-700 bg-emerald-100/90 px-2.5 py-0.5 rounded-lg text-xs">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    30 FPS Realtime
+                  </span>
+                  <span className="text-slate-600 font-medium">
+                    Phát hiện: <strong className="text-slate-900">{liveDetections.length}</strong> khuôn mặt
+                  </span>
+                </div>
+                {liveDetectionError && (
+                  <span className={`px-2.5 py-0.5 rounded-lg text-xs font-semibold shadow-xs ${
+                    liveDetectionError.includes('Đã xử lý') || liveDetectionError.includes('Vui lòng')
+                      ? 'bg-sky-100 text-sky-800 border border-sky-200'
+                      : 'bg-red-100 text-red-700 border border-red-200'
+                  }`}>
+                    {liveDetectionError}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-200/60 text-xs text-slate-500">
+                <p>
+                  {liveRecognizedNames.length > 0
+                    ? `Đang nhận dạng: ${liveRecognizedNames.join(', ')}`
+                    : 'Đang quét tự động (lọc khung rỗng <0.1ms, tự khóa 4s chống spam)'}
+                </p>
+                <span className="text-slate-400">
+                  Xác nhận liên tiếp {PRECHECK_READY_STREAK_REQUIRED} nhịp
+                </span>
+              </div>
+            </div>
+          )}
+
+          <canvas ref={canvasRef} className="hidden" />
+          <canvas ref={detectCanvasRef} className="hidden" />
+
+          <div className="grid sm:grid-cols-2 xl:grid-cols-[1fr_auto_auto] gap-3 items-center">
+            <select
+              value={selectedCameraId}
+              onChange={event => setSelectedCameraId(event.target.value)}
+              className="sm:col-span-2 xl:col-span-1 px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all"
+            >
+              <option value="">-- Chọn camera --</option>
+              {cameras.map(item => (
+                <option key={item.id} value={item.id}>
+                  {item.name} {item.is_default ? '(Mặc định)' : ''}
+                </option>
+              ))}
+            </select>
+
+            {!cameraRunning ? (
+              <button
+                onClick={handleStartCamera}
+                disabled={cameraLoading || !selectedCamera}
+                className="w-full sm:w-auto px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 transition-colors shadow-sm"
+              >
+                {cameraLoading ? 'Đang bật...' : 'Bật camera'}
+              </button>
+            ) : (
+              <button
+                onClick={handleStopCamera}
+                disabled={cameraLoading}
+                className="w-full sm:w-auto px-4 py-2.5 bg-red-500 text-white rounded-xl text-sm font-semibold hover:bg-red-600 disabled:opacity-50 transition-colors shadow-sm"
+              >
+                {cameraLoading ? 'Đang tắt...' : 'Tắt camera'}
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setIsSpeakerModalOpen(true)}
+              className={`w-full sm:w-auto px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all flex items-center justify-center gap-2 shadow-xs ${
+                speakerConfig.enabled
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                  : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+              }`}
+              title="Cài đặt phát âm thanh câu chào qua Loa Camera ngoài hoặc Loa Máy tính"
+            >
+              {speakerConfig.enabled ? <Radio size={16} className="text-emerald-600" /> : <Volume2 size={16} />}
+              <span>{speakerConfig.enabled ? `Loa Camera (${speakerConfig.volume}%)` : 'Cài đặt Loa'}</span>
+            </button>
+
+            <Link
+              to={ROUTES.cameraManagement}
+              className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-200 transition-colors text-center"
+            >
+              Quản lý Camera RTSP
+            </Link>
+          </div>
+
+          {browserCameraSelected && (
+            <div className="rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-blue-700 space-y-3">
+              <p>
+                Camera này hoạt động trực tiếp trên thiết bị đang mở trang điểm danh. Phù hợp cho webcam laptop hoặc camera điện thoại khi dùng webview.
+              </p>
+              {browserCameraSupported && (
+                <div className="grid sm:grid-cols-[1fr_auto] gap-2">
+                  <select
+                    value={selectedBrowserDeviceId}
+                    onChange={event => handleBrowserDeviceChange(event.target.value)}
+                    className="w-full px-3 py-2 border border-blue-200 rounded-xl text-sm bg-white text-slate-700"
+                  >
+                    <option value="">Tự chọn camera theo thiết bị</option>
+                    {browserDevices.map(device => (
+                      <option key={device.id} value={device.id}>{device.label}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => loadBrowserDevices({ withPermission: true })}
+                    disabled={browserDevicesLoading}
+                    className="px-3 py-2 rounded-xl bg-white border border-blue-200 text-blue-700 text-sm font-medium hover:bg-blue-100 disabled:opacity-50"
+                  >
+                    {browserDevicesLoading ? 'Đang quét...' : 'Quét camera'}
+                  </button>
+                </div>
+              )}
+              {selectedBrowserDeviceId && (
+                <p className="text-xs text-blue-800">
+                  Đang ưu tiên camera cố định: {activeBrowserDeviceLabel || selectedBrowserDeviceId}
+                </p>
+              )}
+              {!browserCameraSupported && !requiresSecureContext && (
+                <p className="text-red-600">
+                  Trình duyệt hoặc webview hiện tại chưa hỗ trợ mở camera trực tiếp bằng getUserMedia.
+                </p>
+              )}
+              {requiresSecureContext && (
+                <p className="text-amber-700">
+                  Thiết bị đang mở bằng HTTP theo IP LAN. iPhone/WebView có thể chặn camera live; hãy bật HTTPS để mở camera trình duyệt.
+                </p>
+              )}
+            </div>
+          )}
+
+          {selectedCamera ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 space-y-1.5">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <p className="font-medium text-slate-700">{selectedCamera.name}</p>
+                <button
+                  type="button"
+                  onClick={() => setIsSpeakerModalOpen(true)}
+                  className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border transition-all ${
+                    speakerConfig.enabled
+                      ? 'bg-emerald-100/80 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                      : 'bg-slate-200/80 text-slate-700 border-slate-300 hover:bg-slate-300'
+                  }`}
+                >
+                  {speakerConfig.enabled ? <Radio size={12} className="text-emerald-600" /> : <Volume2 size={12} />}
+                  <span>{speakerConfig.enabled ? `Loa Camera (${speakerConfig.volume}%)` : 'Loa Máy tính'}</span>
+                </button>
+              </div>
+              <p>{describeCamera(selectedCamera)}</p>
+              {speakerConfig.enabled ? (
+                <p className="text-xs text-emerald-700 font-medium flex items-center gap-1">
+                  <span>📢 Phát câu chào: <strong>Loa Camera</strong> ({speakerConfig.cameraName || 'Camera mạng'}) • Âm lượng {speakerConfig.volume}% [Loa PC đã câm]</span>
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  💻 Phát câu chào: <strong>Loa Máy tính (PC)</strong> [Loa Camera đã tắt]
+                </p>
+              )}
+              {browserCameraSelected && (
+                <p>
+                  Hướng camera: {selectedCamera.camera_options?.facing_mode === 'environment'
+                    ? 'Camera sau'
+                    : selectedCamera.camera_options?.facing_mode === 'any'
+                      ? 'Tự chọn theo thiết bị'
+                      : 'Camera trước'}
+                </p>
+              )}
+              {browserCameraSelected && selectedBrowserDeviceId && (
+                <p>
+                  Thiết bị cố định: {activeBrowserDeviceLabel || selectedBrowserDeviceId}
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-400">
+              Chưa có camera nào. Hãy thêm camera ở mục Quản lý Camera RTSP trước.
+            </div>
+          )}
+
+          {showActiveCameraWarning && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              Camera đang chạy là <strong>{activeCamera?.name || activeCameraId}</strong>. Nếu muốn đổi sang camera khác, hãy tắt camera hiện tại rồi bật lại.
+            </div>
+          )}
+
+          {attendanceFeedback && (
+            <div className={`rounded-xl px-4 py-3 text-sm border ${
+              attendanceFeedback.type === 'success'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-red-200 bg-red-50 text-red-600'
+            }`}>
+              <p className="font-medium">{attendanceFeedback.message}</p>
+              {attendanceFeedback.detail && (
+                <p className="mt-1 opacity-80">{cleanLocationDisplayText(attendanceFeedback.detail)}</p>
+              )}
+            </div>
+          )}
+
+          {lastCapturePreview?.imageBase64 && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+              <p className="text-sm font-medium text-slate-700">Ảnh nhận diện lần quét gần nhất (có bounding box)</p>
+              <img
+                src={lastCapturePreview.imageBase64}
+                alt="Detection preview"
+                className="w-full max-h-56 object-contain rounded-lg border border-slate-200 bg-black"
+              />
+              <div className="text-xs text-slate-500 flex items-center justify-between gap-2">
+                <span>Bounding box hiển thị trên ảnh vừa gửi nhận diện gần nhất.</span>
+                {Number.isFinite(lastCapturePreview.faceCount) && (
+                  <span>Faces: {lastCapturePreview.faceCount}</span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-6">
+
+
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100">
+            <h2 className="text-lg font-semibold text-slate-800">Điểm danh hôm nay</h2>
+          </div>
+
+          <div className="divide-y divide-slate-100">
+            {todayRecords.length === 0 ? (
+              <div className="px-5 py-10 text-center text-slate-400 text-sm">
+                Chưa có bản ghi điểm danh hôm nay
+              </div>
+            ) : (
+              todayRecords.map((record, index) => (
+                <div key={`${record.employee_id}-${record.check_in_time || record.time}-${record.check_out_time || ''}-${index}`} className="px-5 py-4 flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-semibold text-slate-800">{record.name}</p>
+                    <p className="text-sm text-slate-500 mt-1">
+                      {record.employee_id} · {record.department || 'Chưa có phòng ban'}
+                    </p>
+                    {record.check_in_location_text && (
+                      <p className="text-xs text-slate-400 mt-1">Vị trí Checkin: {cleanLocationDisplayText(record.check_in_location_text)}</p>
+                    )}
+                    {record.check_out_location_text && (
+                      <p className="text-xs text-slate-400 mt-1">Vị trí Checkout: {cleanLocationDisplayText(record.check_out_location_text)}</p>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
+                      {record.status || 'Điểm danh'}
+                    </span>
+                    <p className="text-sm text-slate-500 mt-2">Vào: {record.check_in_time || record.time || '--:--:--'}</p>
+                    <p className="text-sm text-slate-500">Ra: {record.check_out_time || '--:--:--'}</p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Modal Cài đặt Loa Camera / Loa PC */}
+      <CameraSpeakerSettingsModal
+        isOpen={isSpeakerModalOpen}
+        onClose={() => setIsSpeakerModalOpen(false)}
+        selectedCamera={selectedCamera}
+        cameras={cameras}
+      />
+    </div>
+  )
+}
