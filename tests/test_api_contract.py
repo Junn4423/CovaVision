@@ -1,7 +1,10 @@
+import base64
+
 from fastapi.testclient import TestClient
 
 from app.db.repository import InMemoryRepository
-from app.main import app
+from app.main import app, create_app
+from app.recognition.service import RecognitionService
 
 
 repository = InMemoryRepository()
@@ -49,3 +52,50 @@ def test_camera_public_contract_never_returns_rtsp_secret() -> None:
     assert "password" not in public_camera
     assert "username" not in public_camera
     assert public_camera["camera_options"] == {"target_fps": 15}
+
+
+def test_recognize_endpoint_accepts_json_base64_and_records_attendance() -> None:
+    class FakeFrame:
+        shape = (120, 160, 3)
+
+    class FakeRecognizer:
+        class Engine:
+            @staticmethod
+            def detect_and_encode(_frame):
+                return [{"bbox": [1, 2, 40, 50], "embedding": [1.0, 0.0], "det_score": 0.9}]
+
+        engine = Engine()
+
+        @staticmethod
+        def _decode_image_bytes(_image_bytes):
+            return FakeFrame()
+
+    local_repository = InMemoryRepository()
+    local_repository.seed_user("api.test", "test-password", role="ADMIN")
+    import asyncio
+
+    asyncio.run(local_repository.save_employee({
+        "employee_id": "EMP-API",
+        "name": "API User",
+        "embedding": [1.0, 0.0],
+    }))
+    local_app = create_app(repository=local_repository)
+    local_app.state.recognition_service = RecognitionService(
+        local_repository,
+        recognizer_factory=FakeRecognizer,
+    )
+    local_client = TestClient(local_app)
+    token = local_client.post(
+        "/api/v1/auth/login",
+        json={"username": "api.test", "password": "test-password"},
+    ).json()["access_token"]
+
+    response = local_client.post(
+        "/api/v1/attendance/recognize",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"image_base64": base64.b64encode(b"fake-image").decode("ascii")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert response.json()["record"]["employee_id"] == "EMP-API"

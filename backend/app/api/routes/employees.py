@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.api.deps import get_current_user, get_repository
+from app.api.deps import get_current_user, get_recognition_service, get_repository
+from app.api.image_input import read_image_request
 from app.db.repository import Repository
+from app.recognition.service import RecognitionService, RecognitionUnavailable
 
 router = APIRouter(prefix="/api/v1/employees", tags=["employees"])
 
@@ -62,13 +64,31 @@ async def save_employee(
 
 @router.post("/face")
 async def register_face(
-    payload: dict[str, Any],
+    request: Request,
     _: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
+    recognition: RecognitionService = Depends(get_recognition_service),
 ) -> dict[str, Any]:
+    try:
+        payload, image_bytes = await read_image_request(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not payload.get("employee_id"):
         raise HTTPException(status_code=422, detail="employee_id is required")
-    employee = await repository.save_employee({**payload, "registered": True, "has_face": True, "face_count": 1})
+    try:
+        embedding, error = await recognition.encode_face(image_bytes)
+    except RecognitionUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if embedding is None:
+        raise HTTPException(status_code=422, detail=error or "Không tạo được face template")
+    employee = await repository.save_employee(payload)
+    try:
+        employee = await repository.save_employee_face(
+            str(employee.get("id") or payload.get("employee_id")),
+            embedding,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Employee not found") from exc
     return {"success": True, "message": "Face template registered", "employee": public_employee(employee)}
 
 
@@ -98,7 +118,10 @@ async def clear_face(
     employee = await repository.get_employee(employee_id)
     if employee is None:
         raise HTTPException(status_code=404, detail="Employee not found")
-    updated = await repository.save_employee({**employee, "registered": False, "has_face": False, "image_base64": None})
+    try:
+        updated = await repository.clear_employee_face(employee_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Employee not found") from exc
     return {"success": True, "employee": public_employee(updated)}
 
 

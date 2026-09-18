@@ -3,10 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.api.deps import get_current_user, get_repository
+from app.api.deps import get_current_user, get_recognition_service, get_repository
+from app.api.image_input import read_image_request, similarity_threshold
 from app.db.repository import Repository
+from app.recognition.service import RecognitionService, RecognitionUnavailable
 
 router = APIRouter(prefix="/api/v1/attendance", tags=["attendance"])
 
@@ -42,27 +44,43 @@ async def create_attendance(
 
 @router.post("/recognize")
 async def recognize_attendance(
-    payload: Optional[dict[str, Any]] = None,
-    image: Optional[UploadFile] = None,
+    request: Request,
     _: dict[str, Any] = Depends(get_current_user),
+    recognition: RecognitionService = Depends(get_recognition_service),
 ) -> dict[str, Any]:
-    del payload, image
-    raise HTTPException(
-        status_code=503,
-        detail="Recognition engine chưa được cài model vision trên backend.",
-    )
+    payload, image_bytes = await read_image_request(request)
+    try:
+        return await recognition.recognize(
+            image_bytes,
+            attendance_type=str(payload.get("attendance_type") or "auto"),
+            camera_id=str(payload.get("camera_id") or "").strip() or None,
+            location=payload.get("location"),
+            include_preview=bool(payload.get("include_preview", False)),
+            similarity_threshold=similarity_threshold(payload),
+        )
+    except RecognitionUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/detect")
 async def detect_faces(
-    payload: Optional[dict[str, Any]] = None,
-    image: Optional[UploadFile] = None,
+    request: Request,
     _: dict[str, Any] = Depends(get_current_user),
+    recognition: RecognitionService = Depends(get_recognition_service),
 ) -> dict[str, Any]:
-    del payload, image
-    raise HTTPException(status_code=503, detail="Recognition engine chưa sẵn sàng.")
-
-
+    payload, image_bytes = await read_image_request(request)
+    try:
+        return await recognition.detect(
+            image_bytes,
+            max_faces=int(payload.get("max_faces") or 3),
+            similarity_threshold=similarity_threshold(payload),
+        )
+    except RecognitionUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 @router.get("/records")
 async def attendance_records(
     employee_id: Optional[str] = None,

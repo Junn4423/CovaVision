@@ -6,7 +6,9 @@ the production adapter remains backed by Prisma/MySQL.
 
 from __future__ import annotations
 
+import struct
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -21,6 +23,12 @@ class Repository(Protocol):
     async def list_employees(self, query: str = "") -> list[dict[str, Any]]: ...
 
     async def save_employee(self, payload: dict[str, Any]) -> dict[str, Any]: ...
+
+    async def list_face_candidates(self) -> list[dict[str, Any]]: ...
+
+    async def save_employee_face(self, employee_id: str, embedding: Any) -> dict[str, Any]: ...
+
+    async def clear_employee_face(self, employee_id: str) -> dict[str, Any]: ...
 
     async def list_cameras(self) -> list[dict[str, Any]]: ...
 
@@ -102,6 +110,44 @@ class InMemoryRepository:
         self.employees[employee_id] = employee
         return employee
 
+    async def list_face_candidates(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": item.get("id") or item.get("employee_id"),
+                "employee_id": item.get("employee_id") or item.get("id"),
+                "name": item.get("name") or item.get("employee_id") or item.get("id"),
+                "department": item.get("department"),
+                "position": item.get("position"),
+                "embedding": item.get("embedding") if item.get("embedding") is not None else item.get("face_encoding"),
+            }
+            for item in self.employees.values()
+            if item.get("status", "ACTIVE") != "INACTIVE"
+            and (item.get("embedding") is not None or item.get("face_encoding") is not None)
+        ]
+
+    async def save_employee_face(self, employee_id: str, embedding: Any) -> dict[str, Any]:
+        employee = self.employees.get(employee_id)
+        if employee is None:
+            raise KeyError(employee_id)
+        employee["embedding"] = embedding.tolist() if hasattr(embedding, "tolist") else embedding
+        employee["registered"] = True
+        employee["has_face"] = True
+        employee["face_count"] = 1
+        employee["updated_at"] = _now().isoformat()
+        return employee
+
+    async def clear_employee_face(self, employee_id: str) -> dict[str, Any]:
+        employee = self.employees.get(employee_id)
+        if employee is None:
+            raise KeyError(employee_id)
+        employee.pop("embedding", None)
+        employee.pop("face_encoding", None)
+        employee["registered"] = False
+        employee["has_face"] = False
+        employee["face_count"] = 0
+        employee["updated_at"] = _now().isoformat()
+        return employee
+
     async def list_cameras(self) -> list[dict[str, Any]]:
         return list(self.cameras.values())
 
@@ -181,7 +227,10 @@ class PrismaRepository:
 
     async def get_employee(self, employee_id: str) -> dict[str, Any] | None:
         await self._ensure_connected()
-        employee = await self.client.employee.find_first(where={"id": employee_id})
+        employee = await self.client.employee.find_first(
+            where={"OR": [{"id": employee_id}, {"employeeCode": employee_id}]},
+            include={"faces": {"where": {"isActive": True}}},
+        )
         return self._employee_to_dict(employee) if employee else None
 
     async def list_employees(self, query: str = "") -> list[dict[str, Any]]:
@@ -194,11 +243,120 @@ class PrismaRepository:
                     {"OR": [{"employeeCode": {"contains": query.strip()}}, {"fullName": {"contains": query.strip()}}]},
                 ],
             }
-        employees = await self.client.employee.find_many(where=where, order={"fullName": "asc"})
+        employees = await self.client.employee.find_many(
+            where=where,
+            order={"fullName": "asc"},
+            include={"faces": {"where": {"isActive": True}}},
+        )
         return [self._employee_to_dict(employee) for employee in employees]
 
     async def save_employee(self, payload: dict[str, Any]) -> dict[str, Any]:
-        raise NotImplementedError("Prisma employee write adapter is being completed with face registration")
+        await self._ensure_connected()
+        organization = await self._default_organization()
+        employee_ref = str(
+            payload.get("employee_id")
+            or payload.get("employee_code")
+            or payload.get("employeeCode")
+            or payload.get("id")
+            or ""
+        ).strip()
+        employee_code = employee_ref or str(uuid4())
+        current = await self.client.employee.find_first(
+            where={"OR": [{"id": employee_code}, {"employeeCode": employee_code}]},
+        )
+        status = str(payload.get("status") or "ACTIVE").upper()
+        if status not in {"ACTIVE", "INACTIVE", "ON_LEAVE", "TERMINATED"}:
+            status = "ACTIVE"
+        data = {
+            "employeeCode": employee_code,
+            "fullName": str(payload.get("name") or payload.get("full_name") or employee_code).strip(),
+            "email": str(payload.get("email") or "").strip() or None,
+            "phone": str(payload.get("phone") or "").strip() or None,
+            "avatarPath": str(payload.get("avatar_path") or "").strip() or None,
+            "status": status,
+            "metadata": payload.get("metadata") or None,
+        }
+        if current:
+            employee = await self.client.employee.update(where={"id": current.id}, data=data)
+        else:
+            data["organization"] = {"connect": {"id": organization.id}}
+            employee = await self.client.employee.create(data=data)
+        return self._employee_to_dict(employee)
+
+    async def list_face_candidates(self) -> list[dict[str, Any]]:
+        await self._ensure_connected()
+        faces = await self.client.employeeface.find_many(
+            where={"isActive": True},
+            include={"employee": True},
+        )
+        candidates = []
+        for face in faces:
+            employee = getattr(face, "employee", None)
+            if employee is None:
+                continue
+            raw_embedding = face.embedding
+            if not isinstance(raw_embedding, (bytes, bytearray)) and hasattr(raw_embedding, "decode"):
+                raw_embedding = raw_embedding.decode()
+            if isinstance(raw_embedding, str):
+                from prisma import fields
+
+                raw_embedding = fields.Base64.fromb64(raw_embedding).decode()
+            if not isinstance(raw_embedding, (bytes, bytearray)):
+                continue
+            size = int(getattr(face, "embeddingSize", 0) or 0)
+            if size <= 0 or len(raw_embedding) < size * 4:
+                continue
+            embedding = list(struct.unpack(f"<{size}f", bytes(raw_embedding[: size * 4])))
+            candidates.append({
+                "id": employee.id,
+                "employee_id": employee.employeeCode,
+                "name": employee.fullName,
+                "department": None,
+                "position": None,
+                "embedding": embedding,
+            })
+        return candidates
+
+    async def save_employee_face(self, employee_id: str, embedding: Any) -> dict[str, Any]:
+        await self._ensure_connected()
+        employee = await self.client.employee.find_first(
+            where={"OR": [{"id": employee_id}, {"employeeCode": employee_id}]},
+        )
+        if employee is None:
+            raise KeyError(employee_id)
+        values = self._embedding_values(embedding)
+        if not values:
+            raise ValueError("Face embedding is empty")
+        raw_embedding = struct.pack(f"<{len(values)}f", *values)
+        from prisma import fields
+
+        await self.client.employeeface.update_many(
+            where={"employeeId": employee.id, "isActive": True},
+            data={"isActive": False},
+        )
+        await self.client.employeeface.create(
+            data={
+                "employeeId": employee.id,
+                "embedding": fields.Base64.encode(raw_embedding),
+                "embeddingModel": "insightface-buffalo_s",
+                "embeddingSize": len(values),
+                "isActive": True,
+            },
+        )
+        return self._employee_to_dict(employee, registered=True)
+
+    async def clear_employee_face(self, employee_id: str) -> dict[str, Any]:
+        await self._ensure_connected()
+        employee = await self.client.employee.find_first(
+            where={"OR": [{"id": employee_id}, {"employeeCode": employee_id}]},
+        )
+        if employee is None:
+            raise KeyError(employee_id)
+        await self.client.employeeface.update_many(
+            where={"employeeId": employee.id, "isActive": True},
+            data={"isActive": False},
+        )
+        return self._employee_to_dict(employee, registered=False)
 
     async def list_cameras(self) -> list[dict[str, Any]]:
         await self._ensure_connected()
@@ -212,11 +370,7 @@ class PrismaRepository:
 
     async def save_camera(self, payload: dict[str, Any]) -> dict[str, Any]:
         await self._ensure_connected()
-        organization = await self.client.organization.find_first(order={"createdAt": "asc"})
-        if organization is None:
-            organization = await self.client.organization.create(
-                data={"code": "DEFAULT", "name": "CovaVision"},
-            )
+        organization = await self._default_organization()
 
         requested_id = str(payload.get("id") or "").strip()
         camera_id = requested_id if len(requested_id) == 36 else str(uuid4())
@@ -264,21 +418,128 @@ class PrismaRepository:
         return bool(result)
 
     async def create_attendance(self, payload: dict[str, Any]) -> dict[str, Any]:
-        raise NotImplementedError("Prisma attendance write adapter is being completed with transaction rules")
+        await self._ensure_connected()
+        organization = await self._default_organization()
+        employee_id = str(payload.get("employee_id") or payload.get("user_id") or "").strip()
+        employee = None
+        if employee_id:
+            employee = await self.client.employee.find_first(
+                where={"OR": [{"id": employee_id}, {"employeeCode": employee_id}]},
+            )
+        camera_id = str(payload.get("camera_id") or "").strip()
+        camera = await self.client.camera.find_unique(where={"id": camera_id}) if camera_id else None
+        attendance_type = {
+            "CHECKIN": "CHECK_IN",
+            "CHECK_IN": "CHECK_IN",
+            "CHECKOUT": "CHECK_OUT",
+            "CHECK_OUT": "CHECK_OUT",
+            "AUTO": "AUTO",
+        }.get(str(payload.get("attendance_type") or "AUTO").upper(), "AUTO")
+        status = str(payload.get("status") or "ACCEPTED").upper()
+        if status not in {"ACCEPTED", "REJECTED", "PENDING"}:
+            status = "ACCEPTED"
+        captured_at = self._parse_datetime(payload.get("captured_at"))
+        data: dict[str, Any] = {
+            "organization": {"connect": {"id": organization.id}},
+            "type": attendance_type,
+            "status": status,
+            "capturedAt": captured_at,
+            "confidence": self._decimal_or_none(payload.get("confidence")),
+            "metadata": {"location": payload.get("location")} if payload.get("location") is not None else None,
+        }
+        if employee:
+            data["employee"] = {"connect": {"id": employee.id}}
+        if camera:
+            data["camera"] = {"connect": {"id": camera.id}}
+        record = await self.client.attendancerecord.create(
+            data=data,
+            include={"employee": True, "camera": True},
+        )
+        return self._attendance_to_dict(record)
 
     async def list_attendance(self, filters: dict[str, Any]) -> list[dict[str, Any]]:
         await self._ensure_connected()
-        records = await self.client.attendancerecord.find_many(order={"capturedAt": "desc"}, take=200)
+        where: dict[str, Any] = {}
+        employee_id = str(filters.get("employee_id") or "").strip()
+        if employee_id:
+            employee = await self.client.employee.find_first(
+                where={"OR": [{"id": employee_id}, {"employeeCode": employee_id}]},
+            )
+            where["employeeId"] = employee.id if employee else "__not_found__"
+        records = await self.client.attendancerecord.find_many(
+            where=where,
+            order={"capturedAt": "desc"},
+            take=200,
+            include={"employee": True, "camera": True},
+        )
         return [self._attendance_to_dict(record) for record in records]
 
     async def get_settings(self, key: str | None = None) -> dict[str, Any]:
-        raise NotImplementedError("Prisma settings adapter is being completed")
+        await self._ensure_connected()
+        organization = await self._default_organization()
+        where: dict[str, Any] = {"organizationId": organization.id}
+        if key:
+            where["settingKey"] = key
+        rows = await self.client.systemsetting.find_many(where=where)
+        return {row.settingKey: row.settingValue for row in rows}
 
     async def save_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
-        raise NotImplementedError("Prisma settings adapter is being completed")
+        await self._ensure_connected()
+        organization = await self._default_organization()
+        for key, value in payload.items():
+            setting_key = str(key).strip()
+            if not setting_key:
+                continue
+            await self.client.systemsetting.upsert(
+                where={"organizationId_settingKey": {
+                    "organizationId": organization.id,
+                    "settingKey": setting_key,
+                }},
+                data={
+                    "create": {
+                        "organization": {"connect": {"id": organization.id}},
+                        "settingKey": setting_key,
+                        "settingValue": value,
+                    },
+                    "update": {"settingValue": value},
+                },
+            )
+        return await self.get_settings()
+
+    async def _default_organization(self) -> Any:
+        organization = await self.client.organization.find_first(order={"createdAt": "asc"})
+        if organization is None:
+            organization = await self.client.organization.create(
+                data={"code": "DEFAULT", "name": "CovaVision"},
+            )
+        return organization
 
     @staticmethod
-    def _employee_to_dict(employee: Any) -> dict[str, Any]:
+    def _embedding_values(embedding: Any) -> list[float]:
+        if hasattr(embedding, "tolist"):
+            embedding = embedding.tolist()
+        if embedding is None:
+            return []
+        return [float(value) for value in embedding]
+
+    @staticmethod
+    def _decimal_or_none(value: Any) -> Decimal | None:
+        if value is None or value == "":
+            return None
+        return Decimal(str(value))
+
+    @staticmethod
+    def _parse_datetime(value: Any) -> datetime:
+        if isinstance(value, datetime):
+            return value
+        if value:
+            normalized = str(value).replace("Z", "+00:00")
+            return datetime.fromisoformat(normalized)
+        return _now()
+
+    @staticmethod
+    def _employee_to_dict(employee: Any, *, registered: bool | None = None) -> dict[str, Any]:
+        faces = getattr(employee, "faces", None) or []
         return {
             "id": employee.id,
             "employee_id": employee.employeeCode,
@@ -287,7 +548,9 @@ class PrismaRepository:
             "phone": employee.phone,
             "department": getattr(employee.department, "name", None) if getattr(employee, "department", None) else None,
             "position": getattr(employee.position, "name", None) if getattr(employee, "position", None) else None,
-            "registered": False,
+            "registered": bool(faces) if registered is None else registered,
+            "has_face": bool(faces) if registered is None else registered,
+            "face_count": len(faces) if registered is None else (1 if registered else 0),
         }
 
     @staticmethod
@@ -306,11 +569,16 @@ class PrismaRepository:
 
     @staticmethod
     def _attendance_to_dict(record: Any) -> dict[str, Any]:
+        attendance_type = str(record.type).lower().replace("check_in", "checkin").replace("check_out", "checkout")
+        employee = getattr(record, "employee", None)
+        camera = getattr(record, "camera", None)
         return {
             "id": record.id,
-            "employee_id": record.employeeId,
-            "camera_id": record.cameraId,
-            "attendance_type": str(record.type).lower(),
+            "employee_id": employee.employeeCode if employee else record.employeeId,
+            "employee_name": employee.fullName if employee else None,
+            "camera_id": camera.id if camera else record.cameraId,
+            "camera_name": camera.name if camera else None,
+            "attendance_type": attendance_type,
             "status": str(record.status).lower(),
             "captured_at": record.capturedAt.isoformat(),
             "confidence": float(record.confidence) if record.confidence is not None else None,
