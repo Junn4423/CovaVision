@@ -6,11 +6,14 @@ the production adapter remains backed by Prisma/MySQL.
 
 from __future__ import annotations
 
+import base64
+import os
 import struct
 import re
 import unicodedata
 from datetime import datetime, timezone
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -28,9 +31,11 @@ class Repository(Protocol):
 
     async def list_face_candidates(self) -> list[dict[str, Any]]: ...
 
-    async def save_employee_face(self, employee_id: str, embedding: Any) -> dict[str, Any]: ...
+    async def save_employee_face(self, employee_id: str, embedding: Any, image_bytes: bytes | None = None) -> dict[str, Any]: ...
 
     async def clear_employee_face(self, employee_id: str) -> dict[str, Any]: ...
+
+    async def get_employee_image(self, employee_id: str) -> dict[str, Any] | None: ...
 
     async def list_accounts(self) -> list[dict[str, Any]]: ...
 
@@ -135,7 +140,7 @@ class InMemoryRepository:
             and (item.get("embedding") is not None or item.get("face_encoding") is not None)
         ]
 
-    async def save_employee_face(self, employee_id: str, embedding: Any) -> dict[str, Any]:
+    async def save_employee_face(self, employee_id: str, embedding: Any, image_bytes: bytes | None = None) -> dict[str, Any]:
         employee = self.employees.get(employee_id)
         if employee is None:
             raise KeyError(employee_id)
@@ -143,6 +148,8 @@ class InMemoryRepository:
         employee["registered"] = True
         employee["has_face"] = True
         employee["face_count"] = 1
+        if image_bytes:
+            employee["image_base64"] = "data:image/jpeg;base64," + base64.b64encode(image_bytes).decode("ascii")
         employee["updated_at"] = _now().isoformat()
         return employee
 
@@ -157,6 +164,15 @@ class InMemoryRepository:
         employee["face_count"] = 0
         employee["updated_at"] = _now().isoformat()
         return employee
+
+    async def get_employee_image(self, employee_id: str) -> dict[str, Any] | None:
+        employee = self.employees.get(employee_id)
+        if employee is None:
+            return None
+        return {
+            "image_base64": employee.get("image_base64"),
+            "image_url": employee.get("image_url", ""),
+        }
 
     async def list_accounts(self) -> list[dict[str, Any]]:
         return [
@@ -464,7 +480,7 @@ class PrismaRepository:
             })
         return candidates
 
-    async def save_employee_face(self, employee_id: str, embedding: Any) -> dict[str, Any]:
+    async def save_employee_face(self, employee_id: str, embedding: Any, image_bytes: bytes | None = None) -> dict[str, Any]:
         await self._ensure_connected()
         employee = await self.client.employee.find_first(
             where={"OR": [{"id": employee_id}, {"employeeCode": employee_id}]},
@@ -482,16 +498,22 @@ class PrismaRepository:
             where={"employeeId": employee.id, "isActive": True},
             data={"isActive": False},
         )
+        image_path = self._store_employee_image(employee.id, image_bytes)
         await self.client.employeeface.create(
             data={
                 "employeeId": employee.id,
                 "embedding": fields.Base64.encode(raw_embedding),
                 "embeddingModel": "insightface-buffalo_s",
                 "embeddingSize": len(values),
+                "imagePath": str(image_path) if image_path else None,
                 "isActive": True,
             },
         )
-        return self._employee_to_dict(employee, registered=True)
+        refreshed = await self.client.employee.find_unique(
+            where={"id": employee.id},
+            include=self._employee_include(),
+        )
+        return self._employee_to_dict(refreshed or employee, registered=True)
 
     async def clear_employee_face(self, employee_id: str) -> dict[str, Any]:
         await self._ensure_connected()
@@ -506,6 +528,30 @@ class PrismaRepository:
             data={"isActive": False},
         )
         return self._employee_to_dict(employee, registered=False)
+
+    async def get_employee_image(self, employee_id: str) -> dict[str, Any] | None:
+        await self._ensure_connected()
+        employee = await self.client.employee.find_first(
+            where={"OR": [{"id": employee_id}, {"employeeCode": employee_id}]},
+            include={"faces": {"where": {"isActive": True}}},
+        )
+        if employee is None:
+            return None
+        faces = getattr(employee, "faces", None) or []
+        image_path = next((getattr(face, "imagePath", None) for face in faces if getattr(face, "imagePath", None)), None)
+        if not image_path:
+            return {"image_base64": None, "image_url": ""}
+        path = Path(str(image_path))
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            return {"image_base64": None, "image_url": ""}
+        return {
+            "image_base64": "data:image/jpeg;base64," + base64.b64encode(raw).decode("ascii"),
+            "image_url": "",
+        }
 
     async def list_cameras(self) -> list[dict[str, Any]]:
         await self._ensure_connected()
@@ -739,6 +785,16 @@ class PrismaRepository:
         ascii_value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
         normalized = re.sub(r"[^A-Za-z0-9]+", "_", ascii_value).strip("_").upper()
         return f"{prefix}_{normalized or uuid4().hex[:12]}"[:50]
+
+    @staticmethod
+    def _store_employee_image(employee_id: str, image_bytes: bytes | None) -> Path | None:
+        if not image_bytes:
+            return None
+        root = Path(os.getenv("COVAVISION_DATA_DIR", "data")) / "employee_faces"
+        root.mkdir(parents=True, exist_ok=True)
+        image_path = root / f"{employee_id}.jpg"
+        image_path.write_bytes(image_bytes)
+        return image_path
 
     @staticmethod
     def _decimal_or_none(value: Any) -> Decimal | None:

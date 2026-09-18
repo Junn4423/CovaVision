@@ -85,6 +85,29 @@ def test_camera_update_without_url_preserves_backend_rtsp_source() -> None:
     assert updated["camera_options"] == {"target_fps": 20}
 
 
+def test_employee_image_is_read_back_through_backend() -> None:
+    import asyncio
+
+    local_repository = InMemoryRepository()
+    local_repository.seed_user("image.test", "test-password", role="ADMIN")
+    asyncio.run(local_repository.save_employee({"employee_id": "EMP-IMAGE", "name": "Image User"}))
+    asyncio.run(local_repository.save_employee_face("EMP-IMAGE", [1.0, 0.0], b"fake-jpeg"))
+    local_app = create_app(repository=local_repository)
+    local_client = TestClient(local_app)
+    token = local_client.post(
+        "/api/v1/auth/login",
+        json={"username": "image.test", "password": "test-password"},
+    ).json()["access_token"]
+
+    response = local_client.get(
+        "/api/v1/employees/EMP-IMAGE/image",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["image_base64"].startswith("data:image/jpeg;base64,")
+
+
 def test_recognize_endpoint_accepts_json_base64_and_records_attendance() -> None:
     class FakeFrame:
         shape = (120, 160, 3)

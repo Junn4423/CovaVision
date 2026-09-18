@@ -87,6 +87,7 @@ async def register_face(
         employee = await repository.save_employee_face(
             str(employee.get("id") or payload.get("employee_id")),
             embedding,
+            image_bytes,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Employee not found") from exc
@@ -102,12 +103,8 @@ async def employee_image(
     employee = await repository.get_employee(employee_id)
     if employee is None:
         raise HTTPException(status_code=404, detail="Employee not found")
-    return {
-        "success": True,
-        "employee_id": employee_id,
-        "image_base64": employee.get("image_base64"),
-        "image_url": employee.get("image_url", ""),
-    }
+    image = await repository.get_employee_image(employee_id)
+    return {"success": True, "employee_id": employee_id, **(image or {})}
 
 
 @router.delete("/{employee_id}/face")

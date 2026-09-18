@@ -5,6 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
 cd "$SCRIPT_DIR"
+export COVAVISION_DATA_DIR="${COVAVISION_DATA_DIR:-$PROJECT_ROOT/data}"
 
 if ! command -v node >/dev/null 2>&1; then
   echo "[ERROR] Node.js 18+ chưa được cài đặt."
