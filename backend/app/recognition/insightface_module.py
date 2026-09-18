@@ -23,7 +23,7 @@ PERFORMANCE_CONFIG = {
 def _log_init(message):
     print(f"[InsightFaceModule] {message}")
     try:
-        _INIT_LOG_PATH = resolve_data_dir() / 'facecheck_init.log'
+        _INIT_LOG_PATH = resolve_data_dir() / 'covavision_init.log'
         from datetime import datetime
         with open(_INIT_LOG_PATH, 'a', encoding='utf-8') as f:
             f.write(f"[{datetime.now().isoformat()}] [InsightFaceModule] {message}\n")
@@ -103,9 +103,9 @@ if not os.path.isdir(ANTI_SPOOF_SRC_DIR):
 if ANTI_SPOOF_SRC_DIR not in sys.path:
     if os.path.isdir(ANTI_SPOOF_SRC_DIR):
         sys.path.append(ANTI_SPOOF_SRC_DIR)
-        print(f"[FaceCheck] Added {ANTI_SPOOF_SRC_DIR} to sys.path")
+        print(f"[CovaVision] Added {ANTI_SPOOF_SRC_DIR} to sys.path")
     else:
-        print(f"[FaceCheck] Warning: Anti-spoofing src dir not found: {ANTI_SPOOF_SRC_DIR}")
+        print(f"[CovaVision] Warning: Anti-spoofing src dir not found: {ANTI_SPOOF_SRC_DIR}")
 
 try:
     from generate_patches import CropImage

@@ -1,5 +1,5 @@
-export const ATTENDANCE_SETTINGS_STORAGE_KEY = 'facecheck.attendance_settings.v1'
-export const ATTENDANCE_SETTINGS_EVENT = 'facecheck:attendance-settings-changed'
+export const ATTENDANCE_SETTINGS_STORAGE_KEY = 'covavision.attendance_settings.v1'
+export const ATTENDANCE_SETTINGS_EVENT = 'covavision:attendance-settings-changed'
 
 export const ATTENDANCE_MODE_OPTIONS = Object.freeze({
   checkinCheckout: 'checkin_checkout',

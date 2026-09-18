@@ -1,5 +1,5 @@
-appId: com.facecheck.app
-productName: FaceCheck
+appId: com.covavision.desktop
+productName: CovaVision
 directories:
   output: release
 files:

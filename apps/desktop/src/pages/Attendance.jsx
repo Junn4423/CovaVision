@@ -1629,7 +1629,7 @@ export default function Attendance() {
           }).catch((err) => {
             console.error('[Attendance] Lỗi phát loa camera:', err)
           })
-        } else if (localStorage.getItem('facecheck.tts_enabled') !== 'false') {
+        } else if (localStorage.getItem('covavision.tts_enabled') !== 'false') {
           console.log(`[Attendance] 💻 Phát loa máy tính (PC) cho "${employeeName}"`)
           speakAttendanceOutcome(employeeName, normalizedAttendanceType, res?.is_late)
         }
