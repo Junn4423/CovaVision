@@ -3,6 +3,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
 cd "$SCRIPT_DIR"
 
 if ! command -v node >/dev/null 2>&1; then
@@ -26,6 +27,28 @@ if [ ! -d "node_modules" ]; then
   npm install
 fi
 
-echo "[INFO] Khởi động SOF Face AI desktop..."
-echo "[INFO] Backend sử dụng: SOF gateway remote theo tài khoản đăng nhập."
+PYTHON_BIN="$PROJECT_ROOT/.venv/bin/python"
+if [ ! -x "$PYTHON_BIN" ]; then
+  PYTHON_BIN="$(command -v python3 || true)"
+fi
+if [ -z "$PYTHON_BIN" ]; then
+  echo "[ERROR] Chưa có Python 3 để chạy CovaVision API."
+  exit 1
+fi
+
+BACKEND_URL="${COVAVISION_API_URL:-http://127.0.0.1:8000}"
+if [[ "$BACKEND_URL" != "http://127.0.0.1:8000" && "$BACKEND_URL" != "http://localhost:8000" ]]; then
+  echo "[INFO] Dùng CovaVision API đã cấu hình: $BACKEND_URL"
+else
+  backend_pid=""
+  if ! curl --silent --fail --max-time 1 "$BACKEND_URL/health" >/dev/null 2>&1; then
+    echo "[INFO] Khởi động CovaVision FastAPI backend..."
+    PYTHONPATH="$PROJECT_ROOT/backend${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" -m uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+    backend_pid=$!
+    trap 'if [ -n "${backend_pid:-}" ]; then kill "$backend_pid" 2>/dev/null || true; fi' EXIT INT TERM
+  fi
+fi
+
+echo "[INFO] Khởi động CovaVision desktop..."
+echo "[INFO] RTSP chỉ được mở bởi backend và frontend nhận stream proxy có xác thực."
 exec npm run dev

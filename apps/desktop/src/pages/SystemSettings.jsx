@@ -246,7 +246,7 @@ export default function SystemSettings() {
         <div className="space-y-1">
           <p className="text-sm font-semibold text-slate-800">Cấu hình hệ thống dùng chung</p>
           <p className="text-xs text-slate-500">
-            Cấu hình được lưu vào SQLite backend. Sau khi lưu, mọi người truy cập sẽ dùng cùng một thiết lập.
+            Cấu hình được lưu vào CovaVision MySQL backend. Sau khi lưu, mọi người truy cập sẽ dùng cùng một thiết lập.
           </p>
         </div>
 
