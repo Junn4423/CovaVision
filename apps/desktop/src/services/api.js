@@ -1,17 +1,17 @@
 import {
   clearAuthState,
   clearSessionToken,
-  getGatewayAuth,
+  getAuthData,
   getSessionToken,
   request,
-  setGatewayAuth,
+  setAuthData,
   setSessionToken,
   SESSION_EXPIRED_EVENT,
 } from './request'
 import { authApi } from './modules/auth'
 import { registrationApi } from './modules/registration'
 import { cameraApi } from './modules/camera'
-import { attendanceApi, pushAttendanceToErp } from './modules/attendance'
+import { attendanceApi } from './modules/attendance'
 import { employeeApi } from './modules/employee'
 import { locationApi } from './modules/location'
 import { systemSettingsApi } from './modules/systemSettings'
@@ -19,13 +19,12 @@ import { systemSettingsApi } from './modules/systemSettings'
 export {
   clearAuthState,
   clearSessionToken,
-  getGatewayAuth,
+  getAuthData,
   getSessionToken,
   request,
-  setGatewayAuth,
+  setAuthData,
   setSessionToken,
   SESSION_EXPIRED_EVENT,
-  pushAttendanceToErp,
 }
 
 export const api = {
@@ -40,4 +39,3 @@ export const api = {
   ...systemSettingsApi,
   getAccounts: () => request('/api/v1/accounts'),
 }
-

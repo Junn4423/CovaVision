@@ -68,9 +68,3 @@ export const attendanceApi = {
   }),
 }
 
-// Compatibility aliases are local CovaVision actions; they do not contact another system.
-attendanceApi.attendanceErpSyncStatus = attendanceApi.attendanceSyncStatus
-attendanceApi.pushReportToErp = attendanceApi.syncAttendance
-attendanceApi.pushAttendanceToErp = attendanceApi.syncAttendance
-export const pushAttendanceToErp = attendanceApi.syncAttendance
-

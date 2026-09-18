@@ -50,7 +50,7 @@ function getManageStatusBadge(employee) {
   }
 }
 
-function ImagePreviewModal({ viewer, onClose, onPush, onUpdateFace, isInternalMode }) {
+function ImagePreviewModal({ viewer, onClose, onUpdateFace }) {
   if (!viewer.open) return null
 
   const resolvedImage =
@@ -155,15 +155,6 @@ function ImagePreviewModal({ viewer, onClose, onPush, onUpdateFace, isInternalMo
 
               <button
                 type="button"
-                onClick={() => onPush(viewer.employee)}
-                disabled={viewer.loading || isInternalMode}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:opacity-50"
-              >
-                <span>Đẩy lên ERP</span>
-              </button>
-
-              <button
-                type="button"
                 onClick={onClose}
                 className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
               >
@@ -189,7 +180,6 @@ const emptyViewer = {
 
 export default function ManageFaces() {
   const { toast } = useToast()
-  const [authMode, setAuthMode] = useState('system')
   const [employees, setEmployees] = useState([])
   const [loading, setLoading] = useState(true)
   const [bulkDeleting, setBulkDeleting] = useState(false)
@@ -207,7 +197,6 @@ export default function ManageFaces() {
 
   useEffect(() => {
     loadEmployees()
-    loadAuthMode()
   }, [])
 
   const withFaceCount = useMemo(
@@ -267,8 +256,6 @@ export default function ManageFaces() {
     paginatedEmployees.length > 0 && selectedOnPageCount === paginatedEmployees.length
   const someOnPageSelected = selectedOnPageCount > 0 && !allOnPageSelected
 
-  const isInternalMode = authMode === 'internal'
-
   useEffect(() => {
     const visibleEmployeeIds = new Set(filteredEmployees.map(employee => employee.id))
     setSelectedEmployeeIds(prev => prev.filter(id => visibleEmployeeIds.has(id)))
@@ -293,16 +280,6 @@ export default function ManageFaces() {
       toast.error('Không thể kết nối backend')
     }
     setLoading(false)
-  }
-
-  async function loadAuthMode() {
-    try {
-      const res = await api.sessionStatus()
-      const mode = (res?.auth_mode || res?.user?.auth_mode || 'system').toLowerCase()
-      setAuthMode(mode === 'internal' ? 'internal' : 'system')
-    } catch {
-      setAuthMode('system')
-    }
   }
 
   function closeViewer() {
@@ -442,29 +419,6 @@ export default function ManageFaces() {
     setBulkDeleting(false)
   }
 
-  async function handlePushToErp(employee) {
-    if (!employee) return
-
-    if (isInternalMode) {
-      toast.error('Đang ở chế độ nội bộ')
-      return
-    }
-
-    if (!window.confirm(`Đẩy ảnh nhân viên ${employee.name} (${employee.employee_id}) lên ERP?`))
-      return
-
-    try {
-      const res = await api.pushToErp(employee.employee_id)
-      if (res.success) {
-        toast.success(res.message || 'Đã đẩy ảnh lên ERP thành công')
-      } else {
-        toast.error(res.message || 'Đẩy ERP thất bại')
-      }
-    } catch {
-      toast.error('Không thể đẩy ảnh lên ERP')
-    }
-  }
-
   async function handleUpdateFace(userId) {
     const input = document.createElement('input')
     input.type = 'file'
@@ -530,9 +484,7 @@ export default function ManageFaces() {
       <ImagePreviewModal
         viewer={viewer}
         onClose={closeViewer}
-        onPush={handlePushToErp}
         onUpdateFace={handleUpdateFace}
-        isInternalMode={isInternalMode}
       />
 
       {/* Page Header */}
@@ -847,18 +799,6 @@ export default function ManageFaces() {
                             >
                               <Eye size={13} />
                               <span className="hidden xl:inline">Xem ảnh</span>
-                            </button>
-
-                            {/* Push ERP Button */}
-                            <button
-                              type="button"
-                              onClick={() => handlePushToErp(employee)}
-                              disabled={isInternalMode}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors disabled:opacity-40"
-                              title="Đẩy ảnh lên ERP"
-                            >
-                              <Upload size={12} />
-                              <span className="hidden xl:inline">ERP</span>
                             </button>
 
                             {/* Delete Button */}

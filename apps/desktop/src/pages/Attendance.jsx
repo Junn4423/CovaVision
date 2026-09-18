@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { HardDrive, CheckCircle2, Volume2, Sparkles, Send, Radio, Settings2 } from 'lucide-react'
+import { CheckCircle2, Volume2, Sparkles, Send, Radio, Settings2 } from 'lucide-react'
 import { api } from '../services/api'
 import { openBackendMjpegStream } from '../services/backendMjpegStream'
 import { ROUTES } from '../config/routes'
@@ -11,7 +11,6 @@ import {
   toCooldownTotalSeconds,
 } from '../services/attendanceSettings'
 import { speakAttendanceOutcome } from '../services/ttsService'
-import { queueOfflineAttendance, getPendingAttendanceQueue } from '../services/deviceDataService'
 import { isLikelyFaceFrame } from '../utils/faceFrameCheck'
 import { normalizeFaceDetectionResponse } from '../utils/faceDetection'
 import CameraSpeakerSettingsModal from '../components/CameraSpeakerSettingsModal'
@@ -492,7 +491,6 @@ export default function Attendance() {
   const [browserDevices, setBrowserDevices] = useState([])
   const [browserDevicesLoading, setBrowserDevicesLoading] = useState(false)
   const [selectedBrowserDeviceId, setSelectedBrowserDeviceId] = useState('')
-  const [pendingOfflineCount, setPendingOfflineCount] = useState(0)
   const [backendStreamReady, setBackendStreamReady] = useState(false)
   const [backendSnapshotError, setBackendSnapshotError] = useState('')
   const [activeFaceLock, setActiveFaceLock] = useState(null)
@@ -519,16 +517,6 @@ export default function Attendance() {
   const fpsCounterRef = useRef(null)
   const fpsFrameTimesRef = useRef([])
   const fpsDisplayTimerRef = useRef(null)
-
-  useEffect(() => {
-    function updateQueueCount() {
-      const q = getPendingAttendanceQueue()
-      setPendingOfflineCount(q.length)
-    }
-    updateQueueCount()
-    const interval = setInterval(updateQueueCount, 8000)
-    return () => clearInterval(interval)
-  }, [])
 
   const imgRef = useRef(null)
   const previewContainerRef = useRef(null)
@@ -1658,7 +1646,7 @@ export default function Attendance() {
         const isCooldownMessage = (
           lowerFailureMessage.includes('chỉ được')
           || lowerFailureMessage.includes('gần đây')
-          || lowerFailureMessage.includes('erp gần')
+          || lowerFailureMessage.includes('vừa điểm danh')
           || cooldownRemainingSeconds > 0
         )
 
@@ -1793,17 +1781,6 @@ export default function Attendance() {
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            {pendingOfflineCount > 0 && (
-              <Link
-                to={ROUTES.deviceData}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-100 transition-colors shadow-sm"
-                title="Xem các bản ghi offline chờ gửi lên ERP"
-              >
-                <HardDrive size={13} className="text-amber-600" />
-                <span>Chờ gửi ERP ({pendingOfflineCount})</span>
-              </Link>
-            )}
-
             {/* Nút Cài đặt Loa Camera / Loa PC */}
             <button
               type="button"
@@ -2117,10 +2094,10 @@ export default function Attendance() {
             </button>
 
             <Link
-              to={ROUTES.cameraManagement}
+              to={ROUTES.cameras}
               className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-200 transition-colors text-center"
             >
-              Quản lý Camera RTSP
+              Quản lý camera
             </Link>
           </div>
 

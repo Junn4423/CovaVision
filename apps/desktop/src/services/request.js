@@ -57,7 +57,7 @@ export function getSessionToken() {
   return sessionToken || readStoredToken()
 }
 
-export function setGatewayAuth(value) {
+export function setAuthData(value) {
   authData = value && typeof value === 'object' ? { ...value } : null
   if (typeof window === 'undefined') return
   try {
@@ -74,7 +74,7 @@ export function setGatewayAuth(value) {
   }
 }
 
-export function getGatewayAuth() {
+export function getAuthData() {
   return authData || readStoredAuth()
 }
 
@@ -201,4 +201,3 @@ export async function requestBlob(path, options = {}) {
     filename: utf8Match?.[1] ? decodeURIComponent(utf8Match[1]) : (basicMatch?.[1] || ''),
   }
 }
-

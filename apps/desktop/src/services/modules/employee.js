@@ -61,14 +61,3 @@ export const employeeApi = {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_locked: Boolean(isLocked) }),
   }),
 }
-
-// Temporary UI aliases while the copied screens are migrated to CovaVision names.
-employeeApi.getErpEmployees = employeeApi.getEmployees
-employeeApi.getSyncCompare = () => request('/api/v1/employees/compare')
-employeeApi.importAllFromErp = payload => request('/api/v1/employees/import', {
-  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}), timeout: 60000,
-})
-employeeApi.getErpEmployeeInfo = employeeApi.getEmployee
-employeeApi.reloadFromErp = employeeId => employeeApi.getEmployee(employeeId)
-employeeApi.pushToErp = employeeId => request(`/api/v1/employees/${encodeURIComponent(employeeId)}`, { method: 'PATCH' })
-

@@ -12,5 +12,3 @@ export const registrationApi = {
 }
 
 // Kept as a local alias for copied screens during the migration.
-registrationApi.registerFromErp = registrationApi.registerEmployee
-

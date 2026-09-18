@@ -159,7 +159,7 @@ export default function EmployeeRegistrationModal({
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-4">
           <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-blue-700">SOF BIOMETRIC AI</span>
+            <span className="text-xs font-bold uppercase tracking-wider text-blue-700">COVAVISION BIOMETRIC AI</span>
             <h2 className="text-xl font-black text-slate-900">Đăng ký khuôn mặt nhân viên</h2>
           </div>
           <button

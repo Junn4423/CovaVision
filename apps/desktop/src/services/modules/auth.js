@@ -1,8 +1,8 @@
 import {
   clearAuthState,
-  getGatewayAuth,
+  getAuthData,
   request,
-  setGatewayAuth,
+  setAuthData,
   setSessionToken,
 } from '../request'
 
@@ -25,7 +25,7 @@ function applyLoginContext(payload, username) {
     user,
     role: firstText(payload?.role, user?.role, 'admin'),
   }
-  setGatewayAuth(context)
+  setAuthData(context)
   setSessionToken(token)
   return context
 }
@@ -66,7 +66,7 @@ export const authApi = {
   adminLogout: logout,
   logout,
   injectSession: (auth) => {
-    setGatewayAuth(auth || null)
+    setAuthData(auth || null)
     setSessionToken(auth?.access_token || auth?.token || null)
     return Promise.resolve({ success: true, auth })
   },
@@ -74,6 +74,5 @@ export const authApi = {
   employeeLogin: (username, password) => loginSystem(username, password),
   employeeLogout: logout,
   employeeStatus: () => request('/api/v1/auth/me'),
-  currentAuth: () => getGatewayAuth(),
+  currentAuth: () => getAuthData(),
 }
-
