@@ -24,6 +24,7 @@ prisma/migrations/
 node_modules/
 dist/
 build/
+release/
 .expo/
 .gradle/
 coverage/
