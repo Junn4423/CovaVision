@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import re
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -33,6 +34,13 @@ _HIDDEN_CAMERA_KEYS = {
     "passwordsecret",
     "cameraip",
 }
+_HIDDEN_CAMERA_VALUE = object()
+_PRIVATE_ENDPOINT_PATTERN = re.compile(
+    r"(?i)(?:rtsp|rtsps|rtmp|http|https|tcp)://"
+    r"|(?<!\d)(?:10|127)(?:\.\d{1,3}){3}(?!\d)"
+    r"|(?<!\d)192\.168(?:\.\d{1,3}){2}(?!\d)"
+    r"|(?<!\d)172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}(?!\d)",
+)
 
 
 def _camera_key_is_hidden(key: Any) -> bool:
@@ -43,13 +51,19 @@ def _camera_key_is_hidden(key: Any) -> bool:
 def _safe_camera_value(value: Any) -> Any:
     """Remove nested connection details before returning camera metadata."""
     if isinstance(value, dict):
-        return {
-            key: _safe_camera_value(item)
-            for key, item in value.items()
-            if not _camera_key_is_hidden(key)
-        }
+        safe: dict[str, Any] = {}
+        for key, item in value.items():
+            if _camera_key_is_hidden(key):
+                continue
+            sanitized = _safe_camera_value(item)
+            if sanitized is not _HIDDEN_CAMERA_VALUE:
+                safe[key] = sanitized
+        return safe if safe or not value else _HIDDEN_CAMERA_VALUE
     if isinstance(value, list):
-        return [_safe_camera_value(item) for item in value]
+        safe_items = [item for item in (_safe_camera_value(item) for item in value) if item is not _HIDDEN_CAMERA_VALUE]
+        return safe_items if safe_items or not value else _HIDDEN_CAMERA_VALUE
+    if isinstance(value, str) and _PRIVATE_ENDPOINT_PATTERN.search(value):
+        return _HIDDEN_CAMERA_VALUE
     return value
 
 
@@ -61,7 +75,7 @@ def public_camera(camera: dict[str, Any]) -> dict[str, Any]:
     result = {
         key: value
         for key, value in result.items()
-        if not _camera_key_is_hidden(key)
+        if value is not _HIDDEN_CAMERA_VALUE and not _camera_key_is_hidden(key)
     }
     camera_type = str(result.get("camera_type") or result.get("type") or "rtsp").lower()
     result["camera_type"] = {

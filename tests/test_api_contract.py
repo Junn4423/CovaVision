@@ -41,6 +41,10 @@ def test_camera_public_contract_never_returns_rtsp_secret() -> None:
             "camera_options": {
                 "rtspUrl": "rtsp://nested.internal/live",
                 "host": "private-camera-host",
+                "extra": {
+                    "source_hint": "rtsp://192.168.20.15/live",
+                    "private_ip": "192.168.20.15",
+                },
                 "target_fps": 15,
             },
         },
