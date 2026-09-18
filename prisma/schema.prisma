@@ -1,0 +1,270 @@
+generator client {
+  provider = "prisma-client-py"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  ON_LEAVE
+  TERMINATED
+}
+
+enum UserRole {
+  ADMIN
+  HR_MANAGER
+  SUPERVISOR
+  STAFF
+}
+
+enum CameraType {
+  RTSP
+  WEBCAM
+  MOBILE
+}
+
+enum AttendanceType {
+  CHECK_IN
+  CHECK_OUT
+  AUTO
+}
+
+enum AttendanceStatus {
+  ACCEPTED
+  REJECTED
+  PENDING
+}
+
+model Organization {
+  id           String       @id @default(uuid()) @db.Char(36)
+  code         String       @unique @db.VarChar(50)
+  name         String       @db.VarChar(255)
+  legalName    String?      @db.VarChar(255)
+  timezone     String       @default("Asia/Ho_Chi_Minh") @db.VarChar(64)
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  departments  Department[]
+  positions    JobPosition[]
+  employees    Employee[]
+  cameras      Camera[]
+  attendanceRecords AttendanceRecord[]
+  userAccounts UserAccount[]
+  settings     SystemSetting[]
+  auditLogs    AuditLog[]
+
+  @@map("organizations")
+}
+
+model Department {
+  id             String        @id @default(uuid()) @db.Char(36)
+  organizationId String        @db.Char(36)
+  parentId       String?       @db.Char(36)
+  code           String        @db.VarChar(50)
+  name           String        @db.VarChar(255)
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  parent         Department?   @relation("DepartmentHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children       Department[]  @relation("DepartmentHierarchy")
+  employees      Employee[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, isActive])
+  @@index([parentId])
+  @@map("departments")
+}
+
+model JobPosition {
+  id             String       @id @default(uuid()) @db.Char(36)
+  organizationId String       @db.Char(36)
+  code           String       @db.VarChar(50)
+  name           String       @db.VarChar(255)
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  employees      Employee[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, isActive])
+  @@map("job_positions")
+}
+
+model Employee {
+  id             String           @id @default(uuid()) @db.Char(36)
+  organizationId String           @db.Char(36)
+  departmentId   String?          @db.Char(36)
+  positionId     String?          @db.Char(36)
+  employeeCode   String           @db.VarChar(50)
+  fullName       String           @db.VarChar(255)
+  email          String?          @db.VarChar(255)
+  phone          String?          @db.VarChar(40)
+  avatarPath     String?          @db.VarChar(500)
+  dateOfBirth    DateTime?        @db.Date
+  hireDate       DateTime?        @db.Date
+  terminationDate DateTime?       @db.Date
+  status         EmployeeStatus   @default(ACTIVE)
+  metadata       Json?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  department     Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  position       JobPosition?     @relation(fields: [positionId], references: [id], onDelete: SetNull)
+  faces          EmployeeFace[]
+  attendance     AttendanceRecord[]
+  userAccount    UserAccount?
+
+  @@unique([organizationId, employeeCode])
+  @@index([organizationId, status])
+  @@index([departmentId])
+  @@map("employees")
+}
+
+model EmployeeFace {
+  id              String    @id @default(uuid()) @db.Char(36)
+  employeeId      String    @db.Char(36)
+  label           String?   @db.VarChar(100)
+  imagePath       String?   @db.VarChar(500)
+  embedding       Bytes     @db.LongBlob
+  embeddingModel  String    @db.VarChar(120)
+  embeddingSize   Int       @default(512)
+  qualityScore    Decimal?  @db.Decimal(6, 5)
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  employee        Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, isActive])
+  @@map("employee_faces")
+}
+
+model UserAccount {
+  id             String       @id @default(uuid()) @db.Char(36)
+  organizationId String       @db.Char(36)
+  employeeId     String?      @unique @db.Char(36)
+  username       String       @unique @db.VarChar(100)
+  passwordHash   String       @db.VarChar(255)
+  role           UserRole     @default(STAFF)
+  isActive       Boolean      @default(true)
+  lastLoginAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  employee       Employee?    @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  refreshTokens  RefreshToken[]
+  auditLogs      AuditLog[]
+
+  @@index([organizationId, isActive])
+  @@map("user_accounts")
+}
+
+model RefreshToken {
+  id           String      @id @default(uuid()) @db.Char(36)
+  userAccountId String     @db.Char(36)
+  tokenHash    String      @unique @db.Char(64)
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  createdAt    DateTime    @default(now())
+  userAccount  UserAccount @relation(fields: [userAccountId], references: [id], onDelete: Cascade)
+
+  @@index([userAccountId, expiresAt])
+  @@map("refresh_tokens")
+}
+
+model Camera {
+  id             String       @id @default(uuid()) @db.Char(36)
+  organizationId String       @db.Char(36)
+  name           String       @db.VarChar(255)
+  type           CameraType   @default(RTSP)
+  connectionUrl  String?      @db.Text
+  username       String?      @db.VarChar(100)
+  passwordSecret String?      @db.VarChar(500)
+  options        Json?
+  isDefault      Boolean      @default(false)
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  attendance     AttendanceRecord[]
+
+  @@index([organizationId, isActive])
+  @@map("cameras")
+}
+
+model AttendanceRecord {
+  id              String            @id @default(uuid()) @db.Char(36)
+  organizationId  String            @db.Char(36)
+  employeeId      String?           @db.Char(36)
+  cameraId        String?           @db.Char(36)
+  type            AttendanceType    @default(AUTO)
+  status          AttendanceStatus  @default(ACCEPTED)
+  confidence      Decimal?          @db.Decimal(6, 5)
+  livenessScore   Decimal?          @db.Decimal(6, 5)
+  capturedAt      DateTime
+  latitude        Decimal?          @db.Decimal(10, 7)
+  longitude       Decimal?          @db.Decimal(10, 7)
+  locationAccuracy Decimal?         @db.Decimal(10, 2)
+  deviceId        String?           @db.VarChar(255)
+  rejectionReason String?            @db.VarChar(500)
+  metadata        Json?
+  createdAt       DateTime          @default(now())
+  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  employee        Employee?         @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  camera          Camera?           @relation(fields: [cameraId], references: [id], onDelete: SetNull)
+  snapshots       AttendanceSnapshot[]
+
+  @@index([organizationId, capturedAt])
+  @@index([employeeId, capturedAt])
+  @@index([cameraId, capturedAt])
+  @@map("attendance_records")
+}
+
+model AttendanceSnapshot {
+  id           String            @id @default(uuid()) @db.Char(36)
+  attendanceId String            @db.Char(36)
+  storagePath  String            @db.VarChar(500)
+  sha256       String            @db.Char(64)
+  width        Int?
+  height       Int?
+  createdAt    DateTime          @default(now())
+  attendance   AttendanceRecord  @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+
+  @@index([attendanceId])
+  @@map("attendance_snapshots")
+}
+
+model SystemSetting {
+  id             String       @id @default(uuid()) @db.Char(36)
+  organizationId String       @db.Char(36)
+  settingKey     String       @db.VarChar(150)
+  settingValue   Json
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, settingKey])
+  @@map("system_settings")
+}
+
+model AuditLog {
+  id             String       @id @default(uuid()) @db.Char(36)
+  organizationId String       @db.Char(36)
+  userAccountId  String?      @db.Char(36)
+  action         String       @db.VarChar(120)
+  entityType     String?      @db.VarChar(120)
+  entityId       String?      @db.Char(36)
+  details        Json?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userAccount    UserAccount? @relation(fields: [userAccountId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}

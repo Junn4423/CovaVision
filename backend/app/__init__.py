@@ -1,0 +1,2 @@
+"""CovaVision FastAPI application package."""
+
