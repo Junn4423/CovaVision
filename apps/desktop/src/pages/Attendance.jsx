@@ -44,7 +44,6 @@ const FIXED_BROWSER_CAMERA = {
   name: 'Camera trình duyệt cố định',
   camera_type: 'browser',
   device_index: 0,
-  rtsp_url: '',
   is_default: false,
   camera_options: {
     frame_width: 1280,
@@ -91,14 +90,8 @@ function withFixedBrowserCamera(list) {
 }
 
 function buildStartPayload(camera) {
-  const rtspUrl = camera.rtsp_url || camera.source || ''
   return {
     camera_id: camera.id || undefined,
-    camera_type: camera.camera_type || (rtspUrl ? 'rtsp' : 'device'),
-    device_index: Number(camera.device_index) || 0,
-    rtsp_url: rtspUrl,
-    camera_options: { ...(camera.camera_options || {}) },
-    processing_options: { ...(camera.processing_options || {}) },
   }
 }
 
@@ -501,8 +494,6 @@ export default function Attendance() {
   const [pendingOfflineCount, setPendingOfflineCount] = useState(0)
   const [backendSnapshot, setBackendSnapshot] = useState('')
   const [backendSnapshotError, setBackendSnapshotError] = useState('')
-  const [localRtspStreamUrl, setLocalRtspStreamUrl] = useState('')
-  const [streamKey, setStreamKey] = useState(Date.now())
   const [activeFaceLock, setActiveFaceLock] = useState(null)
   const [isSpeakerModalOpen, setIsSpeakerModalOpen] = useState(false)
   const [speakerConfig, setSpeakerConfig] = useState(() => loadCameraSpeakerConfig())
@@ -575,8 +566,8 @@ export default function Attendance() {
   )
 
   const browserCameraSelected = Boolean(selectedCamera && isBrowserCameraType(selectedCamera.camera_type))
-  const localRtspCameraActive = cameraRuntimeMode === 'local-rtsp'
-  const clientAttendanceCameraActive = browserCameraSelected || localRtspCameraActive
+  const backendCameraActive = cameraRuntimeMode === 'backend'
+  const clientAttendanceCameraActive = browserCameraSelected || backendCameraActive
   const browserCameraSupported = typeof navigator !== 'undefined'
     && !!navigator.mediaDevices
     && typeof navigator.mediaDevices.getUserMedia === 'function'
@@ -650,7 +641,7 @@ export default function Attendance() {
       if (detectTimerRef.current) clearInterval(detectTimerRef.current)
       clearCooldownPopupTimer()
       stopBrowserCameraStream()
-      void api.stopLocalCamera()
+      void api.stopCamera().catch(() => {})
     }
   }, [])
 
@@ -723,33 +714,15 @@ export default function Attendance() {
       rtspRafIdRef.current = 0
     }
 
-    // Backend camera streams directly via videoFeedUrl at 25-30fps
-    if (!(cameraRunning && cameraRuntimeMode === 'local-rtsp')) {
-      if (cameraRuntimeMode !== 'backend') {
-        setBackendSnapshot('')
-        setBackendSnapshotError('')
-      }
+    // The backend owns RTSP. The desktop only polls the latest JPEG snapshot
+    // with Bearer auth, so no browser/Electron surface receives a camera URL.
+    if (!(cameraRunning && cameraRuntimeMode === 'backend')) {
+      setBackendSnapshot('')
+      setBackendSnapshotError('')
       return undefined
     }
 
     let cancelled = false
-
-    // Zero-Latency Mode: Browser natively streams from local MJPEG server
-    if (localRtspStreamUrl) {
-      const unsub = api.onLocalCameraFrameTick(() => {
-        if (cancelled) return
-        const now = performance.now()
-        const times = fpsFrameTimesRef.current
-        times.push(now)
-        while (times.length > 0 && now - times[0] > 2000) times.shift()
-      })
-      return () => {
-        cancelled = true
-        unsub()
-      }
-    }
-
-    // Fallback mode if local MJPEG stream is not available: IPC polling
     let hasFirstFrame = false
     let lastRenderedFrame = ''
 
@@ -779,15 +752,18 @@ export default function Attendance() {
       if (!snapshotInFlightRef.current) {
         snapshotInFlightRef.current = true
         try {
-          const res = await api.localCameraSnapshot()
+          const res = await api.cameraSnapshot(activeCameraId)
           if (!cancelled && res?.success && res.image_base64) {
             rtspLatestFrameRef.current = res.image_base64
+            const now = performance.now()
+            const times = fpsFrameTimesRef.current
+            times.push(now)
+            while (times.length > 0 && now - times[0] > 2000) times.shift()
             if (!hasFirstFrame) {
               hasFirstFrame = true
-              // Signal React once so the <img> element appears
-              setBackendSnapshot(res.image_base64)
-              setBackendSnapshotError('')
             }
+            setBackendSnapshot(res.image_base64)
+            setBackendSnapshotError('')
           } else if (!cancelled && !hasFirstFrame) {
             setBackendSnapshotError(res?.message || 'Đang chờ khung hình từ camera...')
           }
@@ -800,7 +776,7 @@ export default function Attendance() {
         }
       }
       if (!cancelled) {
-        setTimeout(fetchLoop, 0)
+        setTimeout(fetchLoop, 80)
       }
     }
     fetchLoop()
@@ -813,7 +789,7 @@ export default function Attendance() {
       }
       snapshotInFlightRef.current = false
     }
-  }, [cameraRunning, cameraRuntimeMode, localRtspStreamUrl])
+  }, [activeCameraId, cameraRunning, cameraRuntimeMode])
 
 
 
@@ -888,7 +864,8 @@ export default function Attendance() {
         return
       }
 
-      // For local-rtsp, use the direct DOM ref instead of React-managed ref
+      // Backend snapshots are rendered in an image element and sampled locally
+      // only for the lightweight precheck; the camera socket remains backend-only.
       const video = cameraRuntimeMode === 'browser'
         ? videoRef.current
         : (rtspImgDomRef.current || imgRef.current)
@@ -908,7 +885,7 @@ export default function Attendance() {
         scheduleNextScan(PRECHECK_IDLE_INTERVAL_MS)
         return
       }
-      if (cameraRuntimeMode === 'local-rtsp' && !video.complete) {
+      if (cameraRuntimeMode === 'backend' && !video.complete) {
         scheduleNextScan(PRECHECK_IDLE_INTERVAL_MS)
         return
       }
@@ -1411,11 +1388,7 @@ export default function Attendance() {
     setLiveDetectionError('')
 
     try {
-      if (cameraRuntimeMode === 'backend') {
-        await api.stopCamera()
-      } else if (cameraRuntimeMode === 'local-rtsp') {
-        await api.stopLocalCamera()
-      }
+      if (cameraRuntimeMode === 'backend') await api.stopCamera()
 
       stopBrowserCameraStream()
 
@@ -1478,31 +1451,13 @@ export default function Attendance() {
     setLiveDetectionError('')
     try {
       stopBrowserCameraStream()
-      const startPayload = buildStartPayload(selectedCamera)
-      let localFailure = ''
-
-      if (selectedCamera.camera_type === 'rtsp') {
-        const localRes = await api.startLocalCamera(startPayload)
-        if (localRes?.success) {
-          setCameraRunning(true)
-          setCameraRuntimeMode('local-rtsp')
-          setActiveCameraId(selectedCamera.id || '')
-          if (localRes.stream_url) {
-            setLocalRtspStreamUrl(`${localRes.stream_url}?t=${Date.now()}`)
-          }
-          return
-        }
-        localFailure = localRes?.message || ''
-      }
-
-      const res = await api.startCamera(startPayload)
+      const res = await api.startCamera(buildStartPayload(selectedCamera))
       if (res.success) {
         setCameraRunning(true)
         setCameraRuntimeMode('backend')
-        setStreamKey(Date.now())
         setActiveCameraId(selectedCamera.id || res.camera_id || '')
       } else {
-        window.alert(res.message || localFailure || 'Không thể bật camera')
+        window.alert(res.message || 'Không thể bật camera qua CovaVision API')
       }
     } catch (error) {
       window.alert(error?.message || 'Không thể kết nối backend')
@@ -1516,9 +1471,6 @@ export default function Attendance() {
     try {
       if (cameraRuntimeMode === 'browser') {
         stopBrowserCameraStream()
-      } else if (cameraRuntimeMode === 'local-rtsp') {
-        await api.stopLocalCamera()
-        setLocalRtspStreamUrl('')
       } else {
         await api.stopCamera()
       }
@@ -1672,7 +1624,7 @@ export default function Attendance() {
         if (currentSpeakerConfig.enabled) {
           let targetCam = cameras.find(c => c.id === currentSpeakerConfig.cameraId) || selectedCamera
           let speakerInfo = isCameraSpeakerAvailable(targetCam)
-          if (!speakerInfo.available || !speakerInfo.ip) {
+          if (!speakerInfo.available) {
             const rtspCam = cameras.find(c => isCameraSpeakerAvailable(c).available)
             if (rtspCam) {
               targetCam = rtspCam
@@ -1771,7 +1723,7 @@ export default function Attendance() {
   }
 
   function handleVideoError() {
-    if (!cameraRunning || !imgRef.current || !['backend', 'local-rtsp'].includes(cameraRuntimeMode)) return
+    if (!cameraRunning || !imgRef.current || cameraRuntimeMode !== 'backend') return
     setBackendSnapshot('')
     setBackendSnapshotError('Khung hình camera không hợp lệ, đang thử lại...')
   }
@@ -1882,7 +1834,7 @@ export default function Attendance() {
                 {cameraRunning
                   ? (cameraRuntimeMode === 'browser'
                     ? 'Camera trình duyệt đang chạy'
-                    : (cameraRuntimeMode === 'local-rtsp' ? 'Camera RTSP LAN đang chạy' : 'Camera hệ thống đang chạy'))
+                    : 'Camera backend đang chạy')
                   : 'Camera đang tắt'}
               </span>
             </div>
@@ -1898,28 +1850,8 @@ export default function Attendance() {
                 : 'aspect-video'
             }`}
           >
-            {cameraRunning && (cameraRuntimeMode === 'backend' || cameraRuntimeMode === 'local-rtsp') ? (
-              cameraRuntimeMode === 'backend' ? (
-                <img
-                  ref={imgRef}
-                  src={`${api.videoFeedUrl()}?t=${streamKey}`}
-                  alt="Video feed"
-                  className="w-full h-full object-cover"
-                  onError={handleVideoError}
-                />
-              ) : localRtspStreamUrl ? (
-                <img
-                  ref={(node) => {
-                    imgRef.current = node
-                    rtspImgDomRef.current = node
-                  }}
-                  src={localRtspStreamUrl}
-                  crossOrigin="anonymous"
-                  alt="Video feed"
-                  className="w-full h-full object-cover"
-                  onError={handleVideoError}
-                />
-              ) : backendSnapshot ? (
+            {cameraRunning && cameraRuntimeMode === 'backend' ? (
+              backendSnapshot ? (
                 <img
                   ref={(node) => {
                     imgRef.current = node

@@ -13,7 +13,23 @@ router = APIRouter(prefix="/api/v1/cameras", tags=["cameras"])
 
 
 def public_camera(camera: dict[str, Any]) -> dict[str, Any]:
-    hidden = {"connection_url", "username", "password", "password_secret", "secret"}
+    # Camera connection details never cross the API boundary. The browser/mobile
+    # client receives only an opaque id and operational metadata; the backend is
+    # the sole component that opens RTSP and stores credentials.
+    hidden = {
+        "connection_url",
+        "source",
+        "rtsp_url",
+        "stream_url",
+        "username",
+        "password",
+        "password_secret",
+        "secret",
+        "ip",
+        "host",
+        "port",
+        "camera_ip",
+    }
     result = {key: value for key, value in camera.items() if key not in hidden}
     result.setdefault("camera_type", result.get("type", "rtsp"))
     return result
@@ -83,17 +99,19 @@ async def stop_camera(
 @router.get("/status")
 async def camera_status(
     request: Request,
+    camera_id: Optional[str] = None,
     _: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
-    return {"success": True, **get_manager(request).status()}
+    return {"success": True, **get_manager(request).status(camera_id)}
 
 
 @router.get("/snapshot")
 async def camera_snapshot(
     request: Request,
+    camera_id: Optional[str] = None,
     _: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
-    snapshot = get_manager(request).snapshot()
+    snapshot = get_manager(request).snapshot(camera_id)
     if snapshot is None:
         return {"success": False, "message": "Camera chưa có frame mới."}
     return {"success": True, "image_base64": f"data:image/jpeg;base64,{base64.b64encode(snapshot).decode('ascii')}"}

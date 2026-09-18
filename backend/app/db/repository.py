@@ -110,9 +110,16 @@ class InMemoryRepository:
 
     async def save_camera(self, payload: dict[str, Any]) -> dict[str, Any]:
         camera_id = str(payload.get("id") or uuid4())
+        internal_payload = dict(payload)
+        if not internal_payload.get("connection_url"):
+            internal_payload["connection_url"] = (
+                internal_payload.get("source")
+                or internal_payload.get("rtsp_url")
+                or ""
+            )
         camera = {
             **self.cameras.get(camera_id, {}),
-            **payload,
+            **internal_payload,
             "id": camera_id,
             "organization_id": self.organization_id,
             "updated_at": _now().isoformat(),
@@ -196,15 +203,55 @@ class PrismaRepository:
     async def list_cameras(self) -> list[dict[str, Any]]:
         await self._ensure_connected()
         cameras = await self.client.camera.find_many(where={"isActive": True}, order={"name": "asc"})
-        return [self._camera_to_public_dict(camera) for camera in cameras]
+        return [self._camera_to_dict(camera) for camera in cameras]
 
     async def get_camera(self, camera_id: str) -> dict[str, Any] | None:
         await self._ensure_connected()
         camera = await self.client.camera.find_unique(where={"id": camera_id})
-        return self._camera_to_public_dict(camera) if camera else None
+        return self._camera_to_dict(camera) if camera else None
 
     async def save_camera(self, payload: dict[str, Any]) -> dict[str, Any]:
-        raise NotImplementedError("Prisma camera write adapter is being completed with encrypted secrets")
+        await self._ensure_connected()
+        organization = await self.client.organization.find_first(order={"createdAt": "asc"})
+        if organization is None:
+            organization = await self.client.organization.create(
+                data={"code": "DEFAULT", "name": "CovaVision"},
+            )
+
+        requested_id = str(payload.get("id") or "").strip()
+        camera_id = requested_id if len(requested_id) == 36 else str(uuid4())
+        current = await self.client.camera.find_unique(where={"id": camera_id})
+        connection_url = str(
+            payload.get("connection_url")
+            or payload.get("source")
+            or payload.get("rtsp_url")
+            or (getattr(current, "connectionUrl", "") if current else "")
+            or ""
+        ).strip()
+        camera_type = str(payload.get("camera_type") or payload.get("type") or "rtsp").upper()
+        if camera_type not in {"RTSP", "DEVICE", "BROWSER", "MOBILE"}:
+            camera_type = "RTSP"
+        options = payload.get("options") or payload.get("camera_options") or {}
+        if not isinstance(options, dict):
+            options = {}
+        data = {
+            "name": str(payload.get("name") or camera_id).strip(),
+            "type": camera_type,
+            "connectionUrl": connection_url or None,
+            "username": str(payload.get("username") or "").strip() or None,
+            "passwordSecret": str(payload.get("password_secret") or payload.get("password") or "").strip() or None,
+            "options": options,
+            "isDefault": bool(payload.get("is_default", payload.get("isDefault", False))),
+            "isActive": payload.get("enabled", payload.get("is_active", True)) is not False,
+            "organization": {"connect": {"id": organization.id}},
+        }
+        if current:
+            data.pop("organization")
+            camera = await self.client.camera.update(where={"id": camera_id}, data=data)
+        else:
+            data["id"] = camera_id
+            camera = await self.client.camera.create(data=data)
+        return self._camera_to_dict(camera)
 
     async def delete_camera(self, camera_id: str) -> bool:
         await self._ensure_connected()
@@ -239,11 +286,15 @@ class PrismaRepository:
         }
 
     @staticmethod
-    def _camera_to_public_dict(camera: Any) -> dict[str, Any]:
+    def _camera_to_dict(camera: Any) -> dict[str, Any]:
         return {
             "id": camera.id,
             "name": camera.name,
             "camera_type": str(camera.type).lower(),
+            "connection_url": camera.connectionUrl,
+            "username": camera.username,
+            "password_secret": camera.passwordSecret,
+            "camera_options": camera.options or {},
             "is_default": camera.isDefault,
             "is_active": camera.isActive,
         }

@@ -25,6 +25,19 @@ async def list_employees(
     return {"success": True, "employees": [public_employee(item) for item in employees]}
 
 
+@router.post("/import")
+async def import_employees(
+    payload: Optional[dict[str, Any]] = None,
+    _: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    return {"success": True, "imported": 0, "message": "CovaVision quản lý nhân viên nội bộ."}
+
+
+@router.get("/compare")
+async def compare_employees(_: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    return {"success": True, "summary": {"total": 0, "matched": 0, "differences": 0}, "items": []}
+
+
 @router.get("/{employee_id}")
 async def get_employee(
     employee_id: str,
@@ -100,16 +113,3 @@ async def delete_employee(
         raise HTTPException(status_code=404, detail="Employee not found")
     await repository.save_employee({**employee, "status": "INACTIVE"})
     return {"success": True}
-
-
-@router.post("/import")
-async def import_employees(
-    payload: Optional[dict[str, Any]] = None,
-    _: dict[str, Any] = Depends(get_current_user),
-) -> dict[str, Any]:
-    return {"success": True, "imported": 0, "message": "CovaVision quản lý nhân viên nội bộ."}
-
-
-@router.get("/compare")
-async def compare_employees(_: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
-    return {"success": True, "summary": {"total": 0, "matched": 0, "differences": 0}, "items": []}

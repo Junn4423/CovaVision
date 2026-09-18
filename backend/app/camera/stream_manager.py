@@ -79,10 +79,14 @@ class CameraStreamManager:
             return bool(state and state.running)
         return any(state.running for state in self._states.values())
 
-    def status(self) -> dict[str, Any]:
+    def status(self, camera_id: str | None = None) -> dict[str, Any]:
         with self._lock:
             states = list(self._states.values())
-        active = next((state for state in states if state.running), None)
+        active = (
+            next((state for state in states if state.camera_id == camera_id and state.running), None)
+            if camera_id
+            else next((state for state in states if state.running), None)
+        )
         if active is None:
             return {"running": False, "camera_id": None, "fps": 0, "error": ""}
         return {
@@ -185,4 +189,3 @@ class CameraStreamManager:
             state.running = False
             with state.condition:
                 state.condition.notify_all()
-

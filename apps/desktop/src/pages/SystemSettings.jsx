@@ -492,7 +492,7 @@ export default function SystemSettings() {
                   </p>
                   <p className="text-[11px] text-slate-500">
                     {speakerConfig.enabled
-                      ? `Camera ${speakerConfig.cameraName || speakerConfig.cameraIp || 'RTSP'} • Âm lượng ${speakerConfig.volume}% [Loa PC đã câm]`
+                      ? `Camera ${speakerConfig.cameraName || speakerConfig.cameraId || 'đã chọn'} • Âm lượng ${speakerConfig.volume}% [Loa PC đã câm]`
                       : 'Phát giọng đọc tiếng Việt qua loa laptop / máy tính [Loa Camera đã tắt]'}
                   </p>
                 </div>

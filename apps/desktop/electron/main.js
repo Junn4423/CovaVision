@@ -1,10 +1,8 @@
-const { app, BrowserWindow, ipcMain, session } = require('electron');
+const { app, BrowserWindow, session } = require('electron');
 const path = require('path');
 const { resolveBackendRuntimeTarget } = require('./runtimeConfig');
-const { LocalRtspBridge } = require('./localRtspBridge');
 
 let mainWindow = null;
-const localRtspBridge = new LocalRtspBridge();
 const isDev = !app.isPackaged;
 const devServerUrl = process.env.COVAVISION_DEV_URL || 'http://localhost:5173';
 
@@ -53,24 +51,10 @@ app.whenReady().then(() => {
     return allowedPermissions.has(permission);
   });
 
-  localRtspBridge.onFrame = () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('local-rtsp:frame-tick');
-    }
-  };
-
-  ipcMain.handle('local-rtsp:start', (_event, payload) => localRtspBridge.start(payload));
-  ipcMain.handle('local-rtsp:snapshot', () => localRtspBridge.snapshot());
-  ipcMain.handle('local-rtsp:stop', () => localRtspBridge.stop());
-  ipcMain.handle('local-rtsp:status', () => localRtspBridge.status());
   createWindow(resolveBackendRuntimeTarget());
 });
 
 app.on('window-all-closed', () => app.quit());
-
-app.on('before-quit', () => {
-  localRtspBridge.stop();
-});
 
 app.on('activate', () => {
   if (!mainWindow) createWindow(resolveBackendRuntimeTarget());

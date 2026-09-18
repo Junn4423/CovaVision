@@ -101,8 +101,6 @@ export default function CameraSpeakerSettingsModal({
     setConfig(prev => ({
       ...prev,
       profileId,
-      rtspPort: profile.rtspPort || 554,
-      trackId: profile.rtspTrackId === 'auto' ? 'auto' : profile.rtspTrackId,
     }))
   }
 

@@ -344,7 +344,7 @@ export default function Cameras() {
                 type="text"
                 value={cameraForm.rtsp_url}
                 onChange={event => updateForm({ rtsp_url: event.target.value })}
-                placeholder="rtsp://..."
+                placeholder="Nguồn camera được lưu tại backend"
                 className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 transition-all"
               />
             </div>
