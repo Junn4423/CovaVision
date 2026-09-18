@@ -865,26 +865,6 @@ export function FaceAttendancePanel({
               imageBase64,
             });
 
-            if (attendanceResponse?.success !== true) {
-              processedFaceLockRef.current = null;
-              setFaceLocked(false);
-              readyUserKeyRef.current = '';
-              readyStreakRef.current = 0;
-              const message = attendanceResponse?.message || 'Không thể ghi nhận điểm danh. Đang quét lại...';
-              setFeedback({
-                type: 'warning',
-                message,
-                user: detectedUser,
-              });
-              setPrecheck(current => ({
-                ...current,
-                status: 'adjust',
-                progress: 60,
-                message,
-              }));
-              return;
-            }
-
             const isCooldown = Boolean(
               attendanceResponse?.cooldown
               || attendanceResponse?.record?.cooldown
@@ -927,6 +907,26 @@ export function FaceAttendancePanel({
                 message: attendanceResponse?.message || `Vui lòng chờ ${remain} giây giữa các lần chấm công.`,
                 user: detectedUser,
               });
+              return;
+            }
+
+            if (attendanceResponse?.success !== true) {
+              processedFaceLockRef.current = null;
+              setFaceLocked(false);
+              readyUserKeyRef.current = '';
+              readyStreakRef.current = 0;
+              const message = attendanceResponse?.message || 'Không thể ghi nhận điểm danh. Đang quét lại...';
+              setFeedback({
+                type: 'warning',
+                message,
+                user: detectedUser,
+              });
+              setPrecheck(current => ({
+                ...current,
+                status: 'adjust',
+                progress: 60,
+                message,
+              }));
               return;
             }
 

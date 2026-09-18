@@ -64,3 +64,29 @@ async def test_recognize_creates_local_attendance_record_for_match() -> None:
     assert result["record"]["employee_id"] == "EMP-001"
     assert result["record"]["camera_id"] == "camera-1"
     assert len(repository.attendance) == 1
+
+
+@pytest.mark.asyncio
+async def test_recognize_rejects_duplicate_with_server_side_cooldown() -> None:
+    repository = InMemoryRepository()
+    await repository.save_employee({
+        "employee_id": "EMP-001",
+        "name": "Ngọc Chung",
+        "embedding": [1.0, 0.0],
+    })
+    await repository.save_settings({"attendance_cooldown_seconds": 60})
+    service = RecognitionService(repository, recognizer_factory=FakeRecognizer)
+
+    first = await service.recognize(b"fake-image", attendance_type="auto")
+    second = await service.recognize(
+        b"fake-image",
+        attendance_type="auto",
+        cooldown_seconds=0,
+    )
+
+    assert first["success"] is True
+    assert second["success"] is False
+    assert second["cooldown"] is True
+    assert second["cooldown_remaining_seconds"] == 60
+    assert second["user"]["employee_id"] == "EMP-001"
+    assert len(repository.attendance) == 1

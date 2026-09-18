@@ -35,6 +35,7 @@ export function AttendanceActionScreen({adminUser, onBack}: Props) {
     const response = await api.attendanceImageBase64({
       ...payload,
       attendance_type: payload.attendance_type || 'auto',
+      attendance_cooldown_seconds: cooldownSeconds,
       camera_id: selectedCameraSource === '__device__' ? undefined : selectedCameraSource,
       include_preview: false,
     });
@@ -63,7 +64,7 @@ export function AttendanceActionScreen({adminUser, onBack}: Props) {
           loadLatestSettings={loadSettings}
           detectImage={api.attendanceDetectFrame}
           submitImage={api.attendanceImageBase64}
-          onAutoDetectedAttendance={async payload => submitAttendance({image_base64: payload.imageBase64, attendance_type: payload.attendanceType})}
+          onAutoDetectedAttendance={async payload => submitAttendance({image_base64: payload.imageBase64, attendance_type: payload.attendanceType, attendance_cooldown_seconds: payload.cooldownSeconds})}
           onSubmitSuccess={async response => setStatus(response?.message || 'Đã ghi nhận điểm danh.')}
         />
       </View>

@@ -57,6 +57,10 @@ async def recognize_attendance(
             location=payload.get("location"),
             include_preview=bool(payload.get("include_preview", False)),
             similarity_threshold=similarity_threshold(payload),
+            cooldown_seconds=payload.get(
+                "attendance_cooldown_seconds",
+                payload.get("cooldown_seconds", payload.get("cooldownSeconds")),
+            ),
         )
     except RecognitionUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
