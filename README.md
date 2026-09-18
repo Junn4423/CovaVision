@@ -41,6 +41,8 @@ PYTHONPATH=backend python backend/scripts/bootstrap_admin.py
 
 Để chạy nhận diện và proxy camera RTSP, cài thêm `pip install -e '.[vision]'`. API giữ
 URL RTSP ở backend; desktop/mobile chỉ nhận `camera_id`, snapshot hoặc MJPEG stream.
+Ảnh đăng ký khuôn mặt được backend lưu trong `data/employee_faces/` (có thể đổi bằng
+`COVAVISION_DATA_DIR`); thư mục dữ liệu này đã được loại khỏi Git.
 
 ## Database
 
