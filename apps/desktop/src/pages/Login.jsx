@@ -84,7 +84,7 @@ export default function Login() {
     setLoading(true)
     setError('')
     const response = mode === 'login'
-      ? await api.login(identifier.trim(), password)
+      ? await api.login(identifier.trim(), password, { persist: remember })
       : await api.register({ email: identifier.trim(), password, fullName, organizationName })
     if (!response?.success) {
       setError(response?.message || 'Thông tin xác thực không hợp lệ.')

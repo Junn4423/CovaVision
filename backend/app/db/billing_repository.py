@@ -17,24 +17,26 @@ class PrismaBillingMixin:
         plan = get_plan(plan_code)
         return await self.client.subscriptionplan.upsert(
             where={"code": plan.code},
-            update={
-                "name": plan.name,
-                "maxEmployees": plan.max_employees,
-                "maxFaceTemplates": plan.max_face_templates,
-                "monthlyPriceVnd": plan.monthly_price_vnd,
-                "durationDays": plan.duration_days,
-                "contactOnly": plan.contact_only,
-                "isActive": True,
-            },
-            create={
-                "code": plan.code,
-                "name": plan.name,
-                "maxEmployees": plan.max_employees,
-                "maxFaceTemplates": plan.max_face_templates,
-                "monthlyPriceVnd": plan.monthly_price_vnd,
-                "durationDays": plan.duration_days,
-                "contactOnly": plan.contact_only,
-                "isActive": True,
+            data={
+                "update": {
+                    "name": plan.name,
+                    "maxEmployees": plan.max_employees,
+                    "maxFaceTemplates": plan.max_face_templates,
+                    "monthlyPriceVnd": plan.monthly_price_vnd,
+                    "durationDays": plan.duration_days,
+                    "contactOnly": plan.contact_only,
+                    "isActive": True,
+                },
+                "create": {
+                    "code": plan.code,
+                    "name": plan.name,
+                    "maxEmployees": plan.max_employees,
+                    "maxFaceTemplates": plan.max_face_templates,
+                    "monthlyPriceVnd": plan.monthly_price_vnd,
+                    "durationDays": plan.duration_days,
+                    "contactOnly": plan.contact_only,
+                    "isActive": True,
+                },
             },
         )
 

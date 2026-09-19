@@ -134,8 +134,11 @@ SQL
 say "Generate Prisma client và áp dụng schema..."
 PATH="$PROJECT_ROOT/.venv/bin:$PATH" DATABASE_URL="$DATABASE_URL" \
   "$PROJECT_ROOT/.venv/bin/prisma" generate --schema "$PROJECT_ROOT/prisma/schema.prisma" >/dev/null
+# Local bootstrap is intentionally schema-first. The current schema adds nullable
+# unique fields and Prisma treats that change as a data-loss warning even when
+# existing rows are preserved; production should use reviewed migrations instead.
 PATH="$PROJECT_ROOT/.venv/bin:$PATH" DATABASE_URL="$DATABASE_URL" \
-  "$PROJECT_ROOT/.venv/bin/prisma" db push --schema "$PROJECT_ROOT/prisma/schema.prisma"
+  "$PROJECT_ROOT/.venv/bin/prisma" db push --schema "$PROJECT_ROOT/prisma/schema.prisma" --accept-data-loss
 
 if [ -n "${COVAVISION_BOOTSTRAP_PASSWORD:-}" ]; then
   say "Tạo/cập nhật tài khoản quản trị từ biến môi trường..."

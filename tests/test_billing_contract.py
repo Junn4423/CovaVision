@@ -2,10 +2,25 @@ from __future__ import annotations
 
 from app.api.routes.auth import _verify_google_id_token
 from app.billing.plans import list_public_plans
+from app.db.billing_repository import PrismaBillingMixin
 from app.db.repository import InMemoryRepository
 from app.main import create_app
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+
+
+class _FakeSubscriptionPlanClient:
+    def __init__(self) -> None:
+        self.calls = []
+
+    async def upsert(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"code": kwargs["where"]["code"]}
+
+
+class _FakeBillingRepository(PrismaBillingMixin):
+    def __init__(self) -> None:
+        self.client = type("FakeClient", (), {"subscriptionplan": _FakeSubscriptionPlanClient()})()
 
 
 def test_plan_catalog_matches_sales_contract() -> None:
@@ -17,6 +32,17 @@ def test_plan_catalog_matches_sales_contract() -> None:
     assert plans["pro"]["monthly_price_vnd"] == 1_950_000
     assert plans["vip"]["monthly_price_vnd"] == 4_990_000
     assert plans["business"]["contact_only"] is True
+
+
+def test_prisma_plan_upsert_uses_prisma_python_data_contract() -> None:
+    import asyncio
+
+    repository = _FakeBillingRepository()
+    asyncio.run(repository._ensure_prisma_plan("standard"))
+    call = repository.client.subscriptionplan.calls[0]
+    assert call["where"] == {"code": "standard"}
+    assert call["data"]["create"]["code"] == "standard"
+    assert call["data"]["update"]["monthlyPriceVnd"] == 550_000
 
 
 def test_email_registration_creates_trial_and_sepay_webhook_is_idempotent() -> None:
