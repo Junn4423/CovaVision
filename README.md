@@ -120,6 +120,12 @@ npm test
 # Kết quả: 5 test suites passed, 9 tests passed
 ```
 
+Chạy toàn bộ kiểm thử và build kiểm tra bằng một lệnh từ thư mục gốc:
+
+```bash
+./scripts/test_all.sh
+```
+
 ---
 
 ## 🌐 Quét Camera Trong Mạng LAN (ONVIF)
