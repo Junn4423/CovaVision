@@ -81,6 +81,28 @@ def test_business_checkout_requires_contact() -> None:
     assert response.status_code == 409
 
 
+def test_employee_creation_is_blocked_at_trial_quota() -> None:
+    repository = InMemoryRepository()
+    repository.seed_user("owner@example.com", "strong-password", role="ADMIN")
+    for index in range(3):
+        import asyncio
+
+        asyncio.run(repository.save_employee({"employee_id": f"EMP-{index}", "name": f"Employee {index}"}))
+    client = TestClient(create_app(repository=repository))
+    token = client.post(
+        "/api/v1/auth/login",
+        json={"identifier": "owner@example.com", "password": "strong-password"},
+    ).json()["access_token"]
+
+    response = client.post(
+        "/api/v1/employees",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"employee_id": "EMP-4", "name": "Employee 4"},
+    )
+    assert response.status_code == 402
+    assert "3 nhân viên" in response.json()["detail"]
+
+
 def test_google_login_rejects_unconfigured_provider(monkeypatch) -> None:
     from app.api.routes import auth
 

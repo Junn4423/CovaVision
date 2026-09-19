@@ -51,19 +51,19 @@ class Repository(Protocol):
         paid_at: datetime,
     ) -> dict[str, Any]: ...
 
-    async def get_employee(self, employee_id: str) -> dict[str, Any] | None: ...
+    async def get_employee(self, employee_id: str, organization_id: str | None = None) -> dict[str, Any] | None: ...
 
-    async def list_employees(self, query: str = "") -> list[dict[str, Any]]: ...
+    async def list_employees(self, query: str = "", organization_id: str | None = None) -> list[dict[str, Any]]: ...
 
     async def save_employee(self, payload: dict[str, Any]) -> dict[str, Any]: ...
 
-    async def list_face_candidates(self) -> list[dict[str, Any]]: ...
+    async def list_face_candidates(self, organization_id: str | None = None) -> list[dict[str, Any]]: ...
 
-    async def save_employee_face(self, employee_id: str, embedding: Any, image_bytes: bytes | None = None) -> dict[str, Any]: ...
+    async def save_employee_face(self, employee_id: str, embedding: Any, image_bytes: bytes | None = None, organization_id: str | None = None) -> dict[str, Any]: ...
 
-    async def clear_employee_face(self, employee_id: str) -> dict[str, Any]: ...
+    async def clear_employee_face(self, employee_id: str, organization_id: str | None = None) -> dict[str, Any]: ...
 
-    async def get_employee_image(self, employee_id: str) -> dict[str, Any] | None: ...
+    async def get_employee_image(self, employee_id: str, organization_id: str | None = None) -> dict[str, Any] | None: ...
 
     async def list_accounts(self) -> list[dict[str, Any]]: ...
 
@@ -270,10 +270,10 @@ class InMemoryRepository:
         payment["subscription"] = subscription
         return payment
 
-    async def get_employee(self, employee_id: str) -> dict[str, Any] | None:
+    async def get_employee(self, employee_id: str, organization_id: str | None = None) -> dict[str, Any] | None:
         return self.employees.get(employee_id)
 
-    async def list_employees(self, query: str = "") -> list[dict[str, Any]]:
+    async def list_employees(self, query: str = "", organization_id: str | None = None) -> list[dict[str, Any]]:
         normalized = query.strip().lower()
         items = list(self.employees.values())
         if normalized:
@@ -300,7 +300,7 @@ class InMemoryRepository:
         self.employees[employee_id] = employee
         return employee
 
-    async def list_face_candidates(self) -> list[dict[str, Any]]:
+    async def list_face_candidates(self, organization_id: str | None = None) -> list[dict[str, Any]]:
         return [
             {
                 "id": item.get("id") or item.get("employee_id"),
@@ -315,7 +315,7 @@ class InMemoryRepository:
             and (item.get("embedding") is not None or item.get("face_encoding") is not None)
         ]
 
-    async def save_employee_face(self, employee_id: str, embedding: Any, image_bytes: bytes | None = None) -> dict[str, Any]:
+    async def save_employee_face(self, employee_id: str, embedding: Any, image_bytes: bytes | None = None, organization_id: str | None = None) -> dict[str, Any]:
         employee = self.employees.get(employee_id)
         if employee is None:
             raise KeyError(employee_id)
@@ -328,7 +328,7 @@ class InMemoryRepository:
         employee["updated_at"] = _now().isoformat()
         return employee
 
-    async def clear_employee_face(self, employee_id: str) -> dict[str, Any]:
+    async def clear_employee_face(self, employee_id: str, organization_id: str | None = None) -> dict[str, Any]:
         employee = self.employees.get(employee_id)
         if employee is None:
             raise KeyError(employee_id)
@@ -340,7 +340,7 @@ class InMemoryRepository:
         employee["updated_at"] = _now().isoformat()
         return employee
 
-    async def get_employee_image(self, employee_id: str) -> dict[str, Any] | None:
+    async def get_employee_image(self, employee_id: str, organization_id: str | None = None) -> dict[str, Any] | None:
         employee = self.employees.get(employee_id)
         if employee is None:
             return None
@@ -564,24 +564,25 @@ class PrismaRepository(PrismaBillingMixin):
         )
         return self._account_to_dict(updated)
 
-    async def get_employee(self, employee_id: str) -> dict[str, Any] | None:
+    async def get_employee(self, employee_id: str, organization_id: str | None = None) -> dict[str, Any] | None:
         await self._ensure_connected()
+        where: dict[str, Any] = {"OR": [{"id": employee_id}, {"employeeCode": employee_id}]}
+        if organization_id:
+            where = {"AND": [{"organizationId": organization_id}, where]}
         employee = await self.client.employee.find_first(
-            where={"OR": [{"id": employee_id}, {"employeeCode": employee_id}]},
+            where=where,
             include=self._employee_include(),
         )
         return self._employee_to_dict(employee) if employee else None
 
-    async def list_employees(self, query: str = "") -> list[dict[str, Any]]:
+    async def list_employees(self, query: str = "", organization_id: str | None = None) -> list[dict[str, Any]]:
         await self._ensure_connected()
-        where: dict[str, Any] = {"status": "ACTIVE"}
+        conditions: list[dict[str, Any]] = [{"status": "ACTIVE"}]
+        if organization_id:
+            conditions.append({"organizationId": organization_id})
         if query.strip():
-            where = {
-                "AND": [
-                    {"status": "ACTIVE"},
-                    {"OR": [{"employeeCode": {"contains": query.strip()}}, {"fullName": {"contains": query.strip()}}]},
-                ],
-            }
+            conditions.append({"OR": [{"employeeCode": {"contains": query.strip()}}, {"fullName": {"contains": query.strip()}}]})
+        where: dict[str, Any] = {"AND": conditions}
         employees = await self.client.employee.find_many(
             where=where,
             order={"fullName": "asc"},
@@ -591,7 +592,14 @@ class PrismaRepository(PrismaBillingMixin):
 
     async def save_employee(self, payload: dict[str, Any]) -> dict[str, Any]:
         await self._ensure_connected()
-        organization = await self._default_organization()
+        requested_organization_id = str(payload.get("organization_id") or payload.get("organizationId") or "").strip()
+        organization = (
+            await self.client.organization.find_unique(where={"id": requested_organization_id})
+            if requested_organization_id
+            else await self._default_organization()
+        )
+        if organization is None:
+            raise KeyError(requested_organization_id or "organization")
         from prisma import fields
 
         employee_ref = str(
@@ -602,9 +610,10 @@ class PrismaRepository(PrismaBillingMixin):
             or ""
         ).strip()
         employee_code = employee_ref or str(uuid4())
-        current = await self.client.employee.find_first(
-            where={"OR": [{"id": employee_code}, {"employeeCode": employee_code}]},
-        )
+        employee_where: dict[str, Any] = {"OR": [{"id": employee_code}, {"employeeCode": employee_code}]}
+        if requested_organization_id:
+            employee_where = {"AND": [{"organizationId": requested_organization_id}, employee_where]}
+        current = await self.client.employee.find_first(where=employee_where)
         status = str(payload.get("status") or "ACTIVE").upper()
         if status not in {"ACTIVE", "INACTIVE", "ON_LEAVE", "TERMINATED"}:
             status = "ACTIVE"
@@ -664,10 +673,13 @@ class PrismaRepository(PrismaBillingMixin):
         )
         return self._employee_to_dict(refreshed or employee)
 
-    async def list_face_candidates(self) -> list[dict[str, Any]]:
+    async def list_face_candidates(self, organization_id: str | None = None) -> list[dict[str, Any]]:
         await self._ensure_connected()
+        face_where: dict[str, Any] = {"isActive": True}
+        if organization_id:
+            face_where["employee"] = {"organizationId": organization_id}
         faces = await self.client.employeeface.find_many(
-            where={"isActive": True},
+            where=face_where,
             include={
                 "employee": {
                     "include": {
@@ -705,10 +717,13 @@ class PrismaRepository(PrismaBillingMixin):
             })
         return candidates
 
-    async def save_employee_face(self, employee_id: str, embedding: Any, image_bytes: bytes | None = None) -> dict[str, Any]:
+    async def save_employee_face(self, employee_id: str, embedding: Any, image_bytes: bytes | None = None, organization_id: str | None = None) -> dict[str, Any]:
         await self._ensure_connected()
+        where: dict[str, Any] = {"OR": [{"id": employee_id}, {"employeeCode": employee_id}]}
+        if organization_id:
+            where = {"AND": [{"organizationId": organization_id}, where]}
         employee = await self.client.employee.find_first(
-            where={"OR": [{"id": employee_id}, {"employeeCode": employee_id}]},
+            where=where,
             include=self._employee_include(),
         )
         if employee is None:
@@ -740,10 +755,13 @@ class PrismaRepository(PrismaBillingMixin):
         )
         return self._employee_to_dict(refreshed or employee, registered=True)
 
-    async def clear_employee_face(self, employee_id: str) -> dict[str, Any]:
+    async def clear_employee_face(self, employee_id: str, organization_id: str | None = None) -> dict[str, Any]:
         await self._ensure_connected()
+        where: dict[str, Any] = {"OR": [{"id": employee_id}, {"employeeCode": employee_id}]}
+        if organization_id:
+            where = {"AND": [{"organizationId": organization_id}, where]}
         employee = await self.client.employee.find_first(
-            where={"OR": [{"id": employee_id}, {"employeeCode": employee_id}]},
+            where=where,
             include=self._employee_include(),
         )
         if employee is None:
@@ -754,10 +772,13 @@ class PrismaRepository(PrismaBillingMixin):
         )
         return self._employee_to_dict(employee, registered=False)
 
-    async def get_employee_image(self, employee_id: str) -> dict[str, Any] | None:
+    async def get_employee_image(self, employee_id: str, organization_id: str | None = None) -> dict[str, Any] | None:
         await self._ensure_connected()
+        where: dict[str, Any] = {"OR": [{"id": employee_id}, {"employeeCode": employee_id}]}
+        if organization_id:
+            where = {"AND": [{"organizationId": organization_id}, where]}
         employee = await self.client.employee.find_first(
-            where={"OR": [{"id": employee_id}, {"employeeCode": employee_id}]},
+            where=where,
             include={"faces": {"where": {"isActive": True}}},
         )
         if employee is None:

@@ -11,6 +11,7 @@ import ManageFaces from './pages/ManageFaces'
 import Report from './pages/Report'
 import AccountManagement from './pages/AccountManagement'
 import SystemSettings from './pages/SystemSettings'
+import Billing from './pages/Billing'
 import NotFound from './pages/NotFound'
 import { ROUTES } from './config/routes'
 
@@ -34,6 +35,7 @@ export default function App() {
               <Route path={ROUTES.reports} element={<Report />} />
               <Route path={ROUTES.accounts} element={<AccountManagement />} />
               <Route path={ROUTES.settings} element={<SystemSettings />} />
+              <Route path={ROUTES.billing} element={<Billing />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
@@ -42,4 +44,3 @@ export default function App() {
     </ThemeProvider>
   )
 }
-

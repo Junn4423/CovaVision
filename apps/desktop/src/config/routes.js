@@ -7,6 +7,7 @@ export const ROUTES = Object.freeze({
   reports: '/admin/reports',
   accounts: '/admin/accounts',
   settings: '/admin/settings',
+  billing: '/admin/billing',
 })
 
 export const LEGACY_ROUTE_ALIASES = Object.freeze([])

@@ -159,7 +159,9 @@ async function doRequest(path, apiBase, options = {}) {
     return { ...(payload || {}), success: false, message: payload?.message || EXPIRED_SESSION_MESSAGE }
   }
   if (!response.ok) {
-    if (payload && typeof payload === 'object') return payload
+    if (payload && typeof payload === 'object') {
+      return { ...payload, message: payload.message || payload.detail || `HTTP ${response.status}` }
+    }
     throw new Error(`HTTP ${response.status}: ${response.statusText}`)
   }
   if (payload == null) throw new Error('API trả về dữ liệu không hợp lệ.')

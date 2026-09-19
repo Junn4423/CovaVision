@@ -15,6 +15,7 @@ import { attendanceApi } from './modules/attendance'
 import { employeeApi } from './modules/employee'
 import { locationApi } from './modules/location'
 import { systemSettingsApi } from './modules/systemSettings'
+import { billingApi } from './modules/billing'
 
 export {
   clearAuthState,
@@ -37,5 +38,6 @@ export const api = {
   ...employeeApi,
   ...locationApi,
   ...systemSettingsApi,
+  ...billingApi,
   getAccounts: () => request('/api/v1/accounts'),
 }

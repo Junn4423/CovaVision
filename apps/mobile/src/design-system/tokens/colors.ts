@@ -7,17 +7,17 @@
 
 // ── Brand ──
 const teal = {
-  50: '#f0fdfa',
-  100: '#ccfbf1',
-  200: '#99f6e4',
-  300: '#5eead4',
-  400: '#2dd4bf',
-  500: '#14b8a6',
-  600: '#0d9488',
-  700: '#0f766e',
-  800: '#115e59',
-  900: '#134e4a',
-  950: '#042f2e',
+  50: '#f2f6f8',
+  100: '#e6ebee',
+  200: '#cbd9df',
+  300: '#9fb9c5',
+  400: '#4a91a8',
+  500: '#1c6e8c',
+  600: '#175f79',
+  700: '#124e66',
+  800: '#0d3c50',
+  900: '#0d1b2a',
+  950: '#07131d',
 } as const;
 
 // ── Neutral ──
@@ -87,44 +87,44 @@ const green = {
 // ── Public color tokens ──
 export const colors = {
   // Primary & Secondary Brand
-  primary: '#0037b0',
-  primaryLight: '#2151da',
-  primaryDark: '#001551',
-  primaryBg: '#eff6ff',
-  primaryBorder: '#bfdbfe',
-  primaryContainer: '#1d4ed8',
-  onPrimaryContainer: '#cad3ff',
+  primary: '#1c6e8c',
+  primaryLight: '#4a91a8',
+  primaryDark: '#124e66',
+  primaryBg: '#e6ebee',
+  primaryBorder: '#cbd9df',
+  primaryContainer: '#124e66',
+  onPrimaryContainer: '#e6ebee',
 
-  secondary: '#0051d5',
-  secondaryContainer: '#316bf3',
+  secondary: '#2e8b57',
+  secondaryContainer: '#a5b452',
   onSecondaryContainer: '#fefcff',
 
   // Surface & Containers
-  page: '#f7f9fb',
-  pageBackground: '#f7f9fb',
+  page: '#f8f9fa',
+  pageBackground: '#f8f9fa',
   card: '#ffffff',
   cardBackground: '#ffffff',
-  cardMuted: '#f2f4f6',
+  cardMuted: '#f2f6f8',
   surfaceContainerLowest: '#ffffff',
   surfaceContainerLow: '#f2f4f6',
-  surfaceContainer: '#eceef0',
-  surfaceContainerHigh: '#e6e8ea',
-  surfaceContainerHighest: '#e0e3e5',
-  border: '#e2e8f0',
-  borderPrimarySoft: '#bfdbfe',
+  surfaceContainer: '#e6ebee',
+  surfaceContainerHigh: '#dee2e6',
+  surfaceContainerHighest: '#ced4da',
+  border: '#dee2e6',
+  borderPrimarySoft: '#cbd9df',
 
   // Text
-  textPrimary: '#1e293b',
-  textSecondary: '#64748b',
-  textMuted: '#94a3b8',
+  textPrimary: '#0d1b2a',
+  textSecondary: '#495057',
+  textMuted: '#6c757d',
   textOnPrimary: '#ffffff',
-  textLink: '#0037b0',
+  textLink: '#124e66',
 
   // Status
-  success: '#15803d',
-  successBg: '#f0fdf4',
-  successBorder: '#bbf7d0',
-  successText: '#15803d',
+  success: '#2e8b57',
+  successBg: '#edf7f0',
+  successBorder: '#b9dec5',
+  successText: '#247346',
 
   warning: '#b45309',
   warningBg: '#fffbeb',

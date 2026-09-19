@@ -50,6 +50,43 @@ async function loginSystem(username, password) {
   }
 }
 
+async function registerSystem({ email, password, fullName, organizationName }) {
+  const normalizedEmail = String(email || '').trim().toLowerCase()
+  if (!normalizedEmail || !String(password || '').trim()) {
+    return { success: false, message: 'Vui lòng nhập email và mật khẩu.' }
+  }
+  try {
+    const payload = await request('/api/v1/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: normalizedEmail,
+        password,
+        full_name: String(fullName || '').trim(),
+        organization_name: String(organizationName || '').trim(),
+      }),
+      timeout: 15000,
+    })
+    return applyLoginContext(payload, normalizedEmail)
+  } catch (error) {
+    return { success: false, message: error?.message || 'Không thể tạo tài khoản.' }
+  }
+}
+
+async function googleLogin(idToken) {
+  try {
+    const payload = await request('/api/v1/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_token: idToken }),
+      timeout: 15000,
+    })
+    return applyLoginContext(payload, payload?.user?.email || payload?.user?.username || 'google')
+  } catch (error) {
+    return { success: false, message: error?.message || 'Không thể đăng nhập Google.' }
+  }
+}
+
 async function logout() {
   try {
     await request('/api/v1/auth/logout', { method: 'POST', timeout: 10000 })
@@ -63,6 +100,8 @@ async function logout() {
 export const authApi = {
   adminLogin: (username, password) => loginSystem(username, password),
   login: (username, password) => loginSystem(username, password),
+  register: registerSystem,
+  googleLogin,
   adminLogout: logout,
   logout,
   injectSession: (auth) => {
