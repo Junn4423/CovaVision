@@ -117,6 +117,71 @@ def test_camera_update_without_url_preserves_backend_rtsp_source() -> None:
     assert updated["camera_options"] == {"target_fps": 20}
 
 
+def test_prisma_attendance_payload_uses_scalar_relations_and_json_metadata() -> None:
+    import asyncio
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from app.db.repository import PrismaRepository
+
+    class FakeEmployeeActions:
+        async def find_first(self, **_kwargs):
+            return SimpleNamespace(id="employee-db-id")
+
+    class FakeCameraActions:
+        async def find_unique(self, **_kwargs):
+            return SimpleNamespace(id="camera-db-id")
+
+    class FakeAttendanceActions:
+        def __init__(self):
+            self.data = None
+
+        async def create(self, *, data, include):
+            self.data = data
+            return SimpleNamespace(
+                id="attendance-db-id",
+                employeeId="employee-db-id",
+                cameraId="camera-db-id",
+                type="AUTO",
+                status="ACCEPTED",
+                capturedAt=datetime.now(timezone.utc),
+                confidence=None,
+                employee=SimpleNamespace(employeeCode="EMP-001", fullName="Test User"),
+                camera=SimpleNamespace(id="camera-db-id", name="Test camera"),
+            )
+
+    class FakeClient:
+        def __init__(self):
+            self.employee = FakeEmployeeActions()
+            self.camera = FakeCameraActions()
+            self.attendancerecord = FakeAttendanceActions()
+
+    repository = PrismaRepository.__new__(PrismaRepository)
+    repository.client = FakeClient()
+    repository._connected = True
+
+    async def default_organization():
+        return SimpleNamespace(id="organization-db-id")
+
+    repository._default_organization = default_organization
+    result = asyncio.run(repository.create_attendance({
+        "employee_id": "EMP-001",
+        "camera_id": "camera-1",
+        "captured_at": "2026-09-19T00:00:00+00:00",
+        "confidence": 0.95,
+    }))
+
+    data = repository.client.attendancerecord.data
+    assert data["organizationId"] == "organization-db-id"
+    assert data["employeeId"] == "employee-db-id"
+    assert data["cameraId"] == "camera-db-id"
+    assert "organization" not in data
+    assert "employee" not in data
+    assert "camera" not in data
+    assert data["metadata"] is not None
+    assert result["attendance_type"] == "auto"
+
+
 def test_camera_discovery_returns_opaque_candidate_and_resolves_on_backend() -> None:
     class FakeDiscovery:
         def discover(self, *_args, **_kwargs):

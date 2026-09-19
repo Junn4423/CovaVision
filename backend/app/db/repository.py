@@ -659,6 +659,8 @@ class PrismaRepository:
     async def create_attendance(self, payload: dict[str, Any]) -> dict[str, Any]:
         await self._ensure_connected()
         organization = await self._default_organization()
+        from prisma import fields
+
         employee_id = str(payload.get("employee_id") or payload.get("user_id") or "").strip()
         employee = None
         if employee_id:
@@ -672,18 +674,25 @@ class PrismaRepository:
         if status not in {"ACCEPTED", "REJECTED", "PENDING"}:
             status = "ACCEPTED"
         captured_at = self._parse_datetime(payload.get("captured_at"))
+        location = payload.get("location")
         data: dict[str, Any] = {
-            "organization": {"connect": {"id": organization.id}},
+            # Use scalar foreign keys so Prisma selects the unchecked input
+            # consistently. The checked input otherwise requires an
+            # organization relation object and fails with organizationId
+            # missing when metadata is nullable.
+            "organizationId": organization.id,
             "type": attendance_type,
             "status": status,
             "capturedAt": captured_at,
             "confidence": self._decimal_or_none(payload.get("confidence")),
-            "metadata": {"location": payload.get("location")} if payload.get("location") is not None else None,
+            # Prisma Client Python requires an explicit Json value even when
+            # the application has no GPS/location payload.
+            "metadata": fields.Json({"location": location} if location is not None else {}),
         }
         if employee:
-            data["employee"] = {"connect": {"id": employee.id}}
+            data["employeeId"] = employee.id
         if camera:
-            data["camera"] = {"connect": {"id": camera.id}}
+            data["cameraId"] = camera.id
         record = await self.client.attendancerecord.create(
             data=data,
             include={"employee": True, "camera": True},
