@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import re
 from typing import Any, Optional
@@ -8,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import get_current_user, get_repository
+from app.camera.discovery import public_discovery_candidate
 from app.db.repository import Repository
 
 router = APIRouter(prefix="/api/v1/cameras", tags=["cameras"])
@@ -90,6 +92,10 @@ def get_manager(request: Request) -> Any:
     return request.app.state.camera_manager
 
 
+def get_discovery(request: Request) -> Any:
+    return request.app.state.camera_discovery
+
+
 @router.get("")
 async def list_cameras(
     _: dict[str, Any] = Depends(get_current_user),
@@ -98,15 +104,63 @@ async def list_cameras(
     return {"success": True, "cameras": [public_camera(item) for item in await repository.list_cameras()]}
 
 
+@router.post("/discover")
+async def discover_cameras(
+    payload: dict[str, Any],
+    request: Request,
+    _: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    timeout_ms = max(1500, min(int(payload.get("timeout_ms") or 3500), 10000))
+    enable_subnet_fallback = bool(payload.get("enable_subnet_fallback"))
+    subnet_base = str(payload.get("subnet_base") or "").strip() or None
+    try:
+        candidates = await asyncio.to_thread(
+            get_discovery(request).discover,
+            timeout_ms,
+            subnet_base,
+            enable_subnet_fallback,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "success": True,
+        "cameras": [public_discovery_candidate(candidate) for candidate in candidates],
+        "message": f"Đã tìm thấy {len(candidates)} camera trong mạng LAN.",
+    }
+
+
 @router.post("")
 async def save_camera(
     payload: dict[str, Any],
+    request: Request,
     _: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
-    if not str(payload.get("name") or "").strip():
+    camera_payload = dict(payload)
+    discovery_id = str(
+        camera_payload.get("discovery_id") or camera_payload.get("candidate_id") or ""
+    ).strip()
+    if discovery_id:
+        try:
+            resolved = get_discovery(request).resolve_candidate(
+                discovery_id,
+                username=str(camera_payload.get("username") or "admin"),
+                password=str(camera_payload.get("password") or ""),
+                preset=str(camera_payload.get("stream_preset") or "main"),
+                custom_url=str(camera_payload.get("custom_rtsp_url") or ""),
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Camera discovery candidate đã hết hạn") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        camera_payload.pop("discovery_id", None)
+        camera_payload.pop("candidate_id", None)
+        camera_payload.pop("stream_preset", None)
+        camera_payload.pop("custom_rtsp_url", None)
+        camera_payload.update(resolved)
+    if not str(camera_payload.get("name") or "").strip():
         raise HTTPException(status_code=422, detail="Camera name is required")
-    camera = await repository.save_camera(payload)
+    camera = await repository.save_camera(camera_payload)
     return {"success": True, "camera": public_camera(camera)}
 
 

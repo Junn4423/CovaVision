@@ -85,6 +85,73 @@ def test_camera_update_without_url_preserves_backend_rtsp_source() -> None:
     assert updated["camera_options"] == {"target_fps": 20}
 
 
+def test_camera_discovery_returns_opaque_candidate_and_resolves_on_backend() -> None:
+    class FakeDiscovery:
+        def discover(self, *_args, **_kwargs):
+            return [{
+                "id": "discovery-test-1",
+                "ip": "192.168.1.99",
+                "port": 80,
+                "name": "Warehouse Camera",
+                "model": "IPC-A",
+                "brand": "Imou",
+                "manufacturer": "Imou",
+                "discovery_method": "onvif",
+            }]
+
+        def resolve_candidate(self, candidate_id, username="admin", password="", preset="main", custom_url=""):
+            assert candidate_id == "discovery-test-1"
+            assert username == "admin"
+            assert password == "camera-secret"
+            assert preset == "sub"
+            assert not custom_url
+            return {
+                "connection_url": "rtsp://admin:camera-secret@192.168.1.99:554/cam/realmonitor?channel=1&subtype=1",
+                "username": username,
+                "password": password,
+                "name": "Warehouse Camera",
+                "camera_type": "rtsp",
+            }
+
+    import asyncio
+
+    local_repository = InMemoryRepository()
+    local_repository.seed_user("discovery.test", "test-password", role="ADMIN")
+    local_app = create_app(repository=local_repository, camera_discovery=FakeDiscovery())
+    local_client = TestClient(local_app)
+    token = local_client.post(
+        "/api/v1/auth/login",
+        json={"username": "discovery.test", "password": "test-password"},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    discovered = local_client.post(
+        "/api/v1/cameras/discover",
+        headers=headers,
+        json={"timeout_ms": 3500},
+    )
+    assert discovered.status_code == 200
+    public_candidate = discovered.json()["cameras"][0]
+    assert public_candidate["id"] == "discovery-test-1"
+    assert "ip" not in public_candidate
+    assert "192.168.1.99" not in discovered.text
+
+    saved = local_client.post(
+        "/api/v1/cameras",
+        headers=headers,
+        json={
+            "discovery_id": "discovery-test-1",
+            "username": "admin",
+            "password": "camera-secret",
+            "stream_preset": "sub",
+        },
+    )
+    assert saved.status_code == 200
+    assert "192.168.1.99" not in saved.text
+    stored = asyncio.run(local_repository.get_camera(saved.json()["camera"]["id"]))
+    assert stored["connection_url"].endswith("subtype=1")
+
+
 def test_employee_image_is_read_back_through_backend() -> None:
     import asyncio
 
