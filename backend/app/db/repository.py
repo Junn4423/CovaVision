@@ -402,6 +402,8 @@ class PrismaRepository:
     async def save_employee(self, payload: dict[str, Any]) -> dict[str, Any]:
         await self._ensure_connected()
         organization = await self._default_organization()
+        from prisma import fields
+
         employee_ref = str(
             payload.get("employee_id")
             or payload.get("employee_code")
@@ -416,6 +418,11 @@ class PrismaRepository:
         status = str(payload.get("status") or "ACTIVE").upper()
         if status not in {"ACTIVE", "INACTIVE", "ON_LEAVE", "TERMINATED"}:
             status = "ACTIVE"
+        metadata = payload.get("metadata")
+        if metadata is None and current is not None:
+            metadata = getattr(current, "metadata", None)
+        if metadata is None:
+            metadata = {}
         data = {
             "employeeCode": employee_code,
             "fullName": str(payload.get("name") or payload.get("full_name") or employee_code).strip(),
@@ -423,7 +430,9 @@ class PrismaRepository:
             "phone": str(payload.get("phone") or "").strip() or None,
             "avatarPath": str(payload.get("avatar_path") or "").strip() or None,
             "status": status,
-            "metadata": payload.get("metadata") or None,
+            # Prisma Client Python requires an explicit Json value here even
+            # though the database column is nullable.
+            "metadata": fields.Json(metadata),
         }
         for field_name, payload_keys in (
             ("dateOfBirth", ("date_of_birth", "dateOfBirth")),
@@ -447,11 +456,17 @@ class PrismaRepository:
                 organization_id,
                 raw_value,
             )
-            data[relation_name] = {"connect": {"id": relation.id}} if relation else {"disconnect": True}
+            # Use scalar foreign keys so the create branch can use Prisma's
+            # unchecked input together with organizationId. Nested relation
+            # keys make the generated Python client choose the checked input,
+            # which then requires an organization relation object as well.
+            data[f"{relation_name}Id"] = relation.id if relation else None
         if current:
             employee = await self.client.employee.update(where={"id": current.id}, data=data)
         else:
-            data["organization"] = {"connect": {"id": organization.id}}
+            # Supplying the scalar FK avoids Prisma choosing its unchecked
+            # input branch with a missing organizationId.
+            data["organizationId"] = organization.id
             employee = await self.client.employee.create(data=data)
         refreshed = await self.client.employee.find_unique(
             where={"id": employee.id},
