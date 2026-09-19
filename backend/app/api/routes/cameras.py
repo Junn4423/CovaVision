@@ -174,7 +174,7 @@ async def delete_camera(
     _: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
-    get_manager(request).stop(camera_id)
+    await asyncio.to_thread(get_manager(request).stop, camera_id)
     return {"success": await repository.delete_camera(camera_id)}
 
 
@@ -201,7 +201,7 @@ async def stop_camera(
     _: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
     camera_id = str((payload or {}).get("camera_id") or "").strip() or None
-    return get_manager(request).stop(camera_id)
+    return await asyncio.to_thread(get_manager(request).stop, camera_id)
 
 
 @router.get("/status")

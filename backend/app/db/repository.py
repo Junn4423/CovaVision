@@ -6,6 +6,7 @@ the production adapter remains backed by Prisma/MySQL.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import os
 import struct
@@ -280,9 +281,23 @@ class PrismaRepository:
 
         self.client = Prisma()
         self._connected = False
+        # The repository is created while importing the FastAPI app, before
+        # Uvicorn has selected its event loop. Create the lock lazily on the
+        # loop that performs the first request instead of binding it at import.
+        self._connection_lock: asyncio.Lock | None = None
+        self._connection_lock_loop: asyncio.AbstractEventLoop | None = None
 
     async def _ensure_connected(self) -> None:
-        if not self._connected:
+        if self._connected:
+            return
+        loop = asyncio.get_running_loop()
+        if self._connection_lock is None or self._connection_lock_loop is not loop:
+            self._connection_lock = asyncio.Lock()
+            self._connection_lock_loop = loop
+        connection_lock = self._connection_lock
+        async with connection_lock:
+            if self._connected:
+                return
             await self.client.connect()
             self._connected = True
 
