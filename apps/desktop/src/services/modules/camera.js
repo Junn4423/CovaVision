@@ -9,7 +9,12 @@ export const cameraApi = {
     timeout: 15000,
   }),
 
-  stopCamera: () => request('/api/v1/cameras/stop', { method: 'POST', timeout: 10000 }),
+  stopCamera: (cameraId = '') => request('/api/v1/cameras/stop', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cameraId ? { camera_id: cameraId } : {}),
+    timeout: 10000,
+  }),
 
   cameraStatus: cameraId => request(`/api/v1/cameras/status${cameraId ? `?camera_id=${encodeURIComponent(cameraId)}` : ''}`),
   cameraSnapshot: cameraId => request(`/api/v1/cameras/snapshot${cameraId ? `?camera_id=${encodeURIComponent(cameraId)}` : ''}`),

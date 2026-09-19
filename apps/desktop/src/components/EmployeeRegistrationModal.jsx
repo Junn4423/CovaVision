@@ -1,7 +1,34 @@
 import { useEffect, useRef, useState } from 'react'
 import { Camera, CheckCircle2, RefreshCw, Upload, User, X } from 'lucide-react'
 import { api } from '../services/api'
+import { openBackendMjpegStream } from '../services/backendMjpegStream'
 import { useToast } from './Toast'
+
+function isBrowserCameraType(cameraType) {
+  return cameraType === 'browser' || cameraType === 'mobile'
+}
+
+function buildBrowserConstraints(camera) {
+  const options = camera?.camera_options || {}
+  const facingMode = options.facing_mode || 'user'
+  const deviceId = String(options.browser_device_id || '').trim()
+  const baseVideo = {
+    width: { ideal: Number(options.frame_width) || 1280, max: 1920 },
+    height: { ideal: Number(options.frame_height) || 720, max: 1080 },
+    frameRate: { ideal: Number(options.target_fps) || 30, max: 60 },
+  }
+
+  if (deviceId) {
+    return {
+      audio: false,
+      video: { ...baseVideo, deviceId: { ideal: deviceId } },
+    }
+  }
+  if (!facingMode || facingMode === 'any') {
+    return { audio: false, video: baseVideo }
+  }
+  return { audio: false, video: { ...baseVideo, facingMode: { ideal: facingMode } } }
+}
 
 export default function EmployeeRegistrationModal({
   open,
@@ -11,8 +38,13 @@ export default function EmployeeRegistrationModal({
 }) {
   const { toast } = useToast()
   const videoRef = useRef(null)
+  const imageRef = useRef(null)
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
+  const backendAbortRef = useRef(null)
+  const backendFrameUrlRef = useRef('')
+  const runtimeModeRef = useRef(null)
+  const activeCameraIdRef = useRef('')
   const fileInputRef = useRef(null)
 
   const [employeeId, setEmployeeId] = useState('')
@@ -20,68 +52,160 @@ export default function EmployeeRegistrationModal({
   const [department, setDepartment] = useState('')
   const [position, setPosition] = useState('')
   const [capturedBase64, setCapturedBase64] = useState('')
+  const [cameras, setCameras] = useState([])
+  const [selectedCameraId, setSelectedCameraId] = useState('')
+  const [runtimeMode, setRuntimeMode] = useState(null)
   const [cameraActive, setCameraActive] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [cameraError, setCameraError] = useState('')
 
   useEffect(() => {
-    if (open) {
-      setEmployeeId(initialEmployee?.employee_id || initialEmployee?.id || '')
-      setName(initialEmployee?.name || initialEmployee?.employee_name || '')
-      setDepartment(initialEmployee?.department || '')
-      setPosition(initialEmployee?.position || '')
-      setCapturedBase64(initialEmployee?.image_base64 || '')
-      startCamera()
-    } else {
-      stopCamera()
+    let cancelled = false
+    if (!open) {
+      void stopCamera()
       setCapturedBase64('')
       setCameraError('')
+      return undefined
     }
+
+    setEmployeeId(initialEmployee?.employee_id || initialEmployee?.id || '')
+    setName(initialEmployee?.name || initialEmployee?.employee_name || '')
+    setDepartment(initialEmployee?.department || '')
+    setPosition(initialEmployee?.position || '')
+    setCapturedBase64(initialEmployee?.image_base64 || '')
+
+    async function initializeCamera() {
+      try {
+        const response = await api.getCameras()
+        const available = Array.isArray(response?.cameras) ? response.cameras : []
+        if (cancelled) return
+        setCameras(available)
+        const preferred = initialEmployee?.camera_id || available.find(item => item.is_default)?.id || available[0]?.id || ''
+        setSelectedCameraId(preferred)
+        if (!preferred) {
+          setCameraError('Chưa có camera trong bảng cấu hình. Hãy thêm camera trước khi đăng ký khuôn mặt.')
+          return
+        }
+        await startCamera(available.find(item => item.id === preferred))
+      } catch (error) {
+        if (!cancelled) setCameraError(error?.message || 'Không tải được danh sách camera từ backend.')
+      }
+    }
+
+    void initializeCamera()
     return () => {
-      stopCamera()
+      cancelled = true
+      void stopCamera()
     }
   }, [open, initialEmployee])
 
-  async function startCamera() {
+  async function stopCamera() {
+    const mode = runtimeModeRef.current
+    const cameraId = activeCameraIdRef.current
+    backendAbortRef.current?.abort()
+    backendAbortRef.current = null
+    if (backendFrameUrlRef.current) {
+      URL.revokeObjectURL(backendFrameUrlRef.current)
+      backendFrameUrlRef.current = ''
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current = null
+    }
+    if (videoRef.current) videoRef.current.srcObject = null
+    runtimeModeRef.current = null
+    activeCameraIdRef.current = ''
+    setRuntimeMode(null)
+    setCameraActive(false)
+    if (mode === 'backend' && cameraId) {
+      try {
+        await api.stopCamera(cameraId)
+      } catch {
+        // The camera may already have been stopped by another page.
+      }
+    }
+  }
+
+  async function startCamera(camera) {
     setCameraError('')
     try {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(t => t.stop())
+      await stopCamera()
+      if (!camera?.id) throw new Error('Camera chưa có mã cấu hình.')
+      activeCameraIdRef.current = camera.id
+
+      if (isBrowserCameraType(camera.camera_type)) {
+        if (!navigator.mediaDevices?.getUserMedia) throw new Error('Thiết bị hiện tại không hỗ trợ camera trình duyệt.')
+        const stream = await navigator.mediaDevices.getUserMedia(buildBrowserConstraints(camera))
+        streamRef.current = stream
+        runtimeModeRef.current = 'browser'
+        setRuntimeMode('browser')
+        setCameraActive(true)
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          await videoRef.current.play()
+        }
+        return
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-        audio: false,
-      })
-      streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
-      }
+
+      const startResponse = await api.startCamera({ camera_id: camera.id })
+      if (!startResponse?.success) throw new Error(startResponse?.message || 'Không thể bật camera qua backend.')
+      const controller = new AbortController()
+      backendAbortRef.current = controller
+      runtimeModeRef.current = 'backend'
+      setRuntimeMode('backend')
       setCameraActive(true)
+
+      void openBackendMjpegStream(camera.id, {
+        signal: controller.signal,
+        onFrame: async jpegBytes => {
+          if (controller.signal.aborted) return
+          const nextUrl = URL.createObjectURL(new Blob([jpegBytes], { type: 'image/jpeg' }))
+          const previousUrl = backendFrameUrlRef.current
+          backendFrameUrlRef.current = nextUrl
+          if (imageRef.current) imageRef.current.src = nextUrl
+          if (previousUrl) setTimeout(() => URL.revokeObjectURL(previousUrl), 1000)
+        },
+      }).catch(error => {
+        if (!controller.signal.aborted) {
+          setCameraError(error?.message || 'Không lấy được luồng camera từ backend.')
+          setCameraActive(false)
+        }
+      })
     } catch (err) {
-      setCameraError('Không thể mở camera. Vui lòng cho phép quyền camera hoặc tải ảnh lên.')
+      activeCameraIdRef.current = ''
+      runtimeModeRef.current = null
+      setRuntimeMode(null)
+      setCameraError(err?.message || 'Không thể mở camera. Vui lòng kiểm tra camera đã cấu hình.')
       setCameraActive(false)
     }
   }
 
-  function stopCamera() {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop())
-      streamRef.current = null
-    }
-    setCameraActive(false)
+  function handleCameraChange(event) {
+    const nextId = event.target.value
+    const nextCamera = cameras.find(item => item.id === nextId)
+    setSelectedCameraId(nextId)
+    if (nextCamera) void startCamera(nextCamera)
   }
 
   function handleCaptureFromWebcam() {
-    if (!videoRef.current || !canvasRef.current) return
-    const video = videoRef.current
+    const source = runtimeMode === 'browser' ? videoRef.current : imageRef.current
+    if (!source || !canvasRef.current) return
+    if (runtimeMode === 'browser' && (!source.videoWidth || !source.videoHeight || source.readyState < 2)) {
+      toast.error('Luồng camera chưa có khung hình. Vui lòng đợi camera lên hình rồi thử lại.')
+      return
+    }
+    if (runtimeMode === 'backend' && (!source.complete || !source.naturalWidth || !source.naturalHeight)) {
+      toast.error('Proxy camera chưa có khung hình. Vui lòng đợi camera lên hình rồi thử lại.')
+      return
+    }
     const canvas = canvasRef.current
-    canvas.width = video.videoWidth || 640
-    canvas.height = video.videoHeight || 480
+    canvas.width = runtimeMode === 'browser' ? source.videoWidth : source.naturalWidth
+    canvas.height = runtimeMode === 'browser' ? source.videoHeight : source.naturalHeight
+    if (!canvas.width || !canvas.height) return
     const ctx = canvas.getContext('2d')
 
     // Draw video frame
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    ctx.drawImage(source, 0, 0, canvas.width, canvas.height)
     const base64 = canvas.toDataURL('image/jpeg', 0.92)
     setCapturedBase64(base64)
   }
@@ -125,6 +249,7 @@ export default function EmployeeRegistrationModal({
         department: department.trim(),
         position: position.trim(),
         image_base64: capturedBase64,
+        camera_id: selectedCameraId || undefined,
       }
 
       const isExisting = Boolean(initialEmployee?.registered)
@@ -225,6 +350,39 @@ export default function EmployeeRegistrationModal({
             </div>
           </div>
 
+          <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-3.5 space-y-2">
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+              Camera đăng ký
+            </label>
+            <select
+              value={selectedCameraId}
+              onChange={handleCameraChange}
+              disabled={!cameras.length}
+              className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-500 disabled:opacity-60"
+            >
+              {!cameras.length && <option value="">Chưa có camera đã cấu hình</option>}
+              {cameras.map(camera => (
+                <option key={camera.id} value={camera.id}>
+                  {camera.name} · {camera.camera_type === 'rtsp' ? 'RTSP backend' : 'Thiết bị'}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-blue-700">
+              {cameraActive
+                ? `Đang dùng ${cameras.find(item => item.id === selectedCameraId)?.name || 'camera đã chọn'} (${runtimeMode === 'backend' ? 'proxy backend' : 'camera thiết bị'}).`
+                : 'Chọn camera trong bảng cấu hình rồi bấm bật lại nếu cần.'}
+            </p>
+            {cameraActive && (
+              <button
+                type="button"
+                onClick={() => void startCamera(cameras.find(item => item.id === selectedCameraId))}
+                className="rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100"
+              >
+                Bật lại camera
+              </button>
+            )}
+          </div>
+
           {/* Camera Capture or Upload */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -253,13 +411,21 @@ export default function EmployeeRegistrationModal({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
               {/* Webcam stream */}
               <div className="relative aspect-[4/3] rounded-2xl overflow-hidden bg-slate-900 flex items-center justify-center border border-slate-200">
-                <video
-                  ref={videoRef}
-                  className="w-full h-full object-cover scale-x-[-1]"
-                  playsInline
-                  muted
-                  autoPlay
-                />
+                {runtimeMode === 'backend' ? (
+                  <img
+                    ref={imageRef}
+                    alt="Camera đăng ký khuôn mặt"
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <video
+                    ref={videoRef}
+                    className="w-full h-full object-cover scale-x-[-1]"
+                    playsInline
+                    muted
+                    autoPlay
+                  />
+                )}
                 <canvas ref={canvasRef} className="hidden" />
 
                 {/* Face Oval Guide */}
@@ -271,6 +437,7 @@ export default function EmployeeRegistrationModal({
                   <button
                     type="button"
                     onClick={handleCaptureFromWebcam}
+                    disabled={!cameraActive}
                     className="inline-flex items-center gap-1.5 rounded-full bg-cyan-500 hover:bg-cyan-600 px-4 py-1.5 text-xs font-black text-slate-900 shadow-md transition-all active:scale-95"
                   >
                     <Camera size={14} />

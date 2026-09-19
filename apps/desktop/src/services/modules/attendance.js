@@ -22,11 +22,11 @@ function recognize(path, payload, options = {}) {
 }
 
 export const attendanceApi = {
-  checkAttendance: (employeeId, location = null, attendanceType = 'checkin', options = null) => (
+  checkAttendance: (employeeId, location = null, _attendanceType = 'auto', options = null) => (
     request('/api/v1/attendance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ employee_id: employeeId, location, attendance_type: attendanceType, ...(options || {}) }),
+      body: JSON.stringify({ employee_id: employeeId, location, attendance_type: 'auto', ...(options || {}) }),
     })
   ),
 

@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 
 from app.api.deps import get_current_user, get_repository
 from app.camera.discovery import public_discovery_candidate
+from app.camera.speaker import speak_to_camera
 from app.db.repository import Repository
 
 router = APIRouter(prefix="/api/v1/cameras", tags=["cameras"])
@@ -244,6 +245,7 @@ async def speak_camera(
     _: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
-    if await repository.get_camera(camera_id) is None:
+    camera = await repository.get_camera(camera_id)
+    if camera is None:
         raise HTTPException(status_code=404, detail="Camera not found")
-    return {"success": False, "message": "Camera speaker adapter chưa được bật trên backend."}
+    return await asyncio.to_thread(speak_to_camera, camera, payload)

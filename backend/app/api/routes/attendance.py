@@ -24,7 +24,7 @@ async def _manual_record(payload: dict[str, Any], repository: Repository) -> dic
     record = await repository.create_attendance({
         "employee_id": employee_id or None,
         "camera_id": payload.get("camera_id"),
-        "attendance_type": payload.get("attendance_type", "auto"),
+        "attendance_type": "auto",
         "status": "accepted",
         "captured_at": payload.get("captured_at") or _now(),
         "confidence": payload.get("confidence"),
@@ -52,15 +52,11 @@ async def recognize_attendance(
     try:
         return await recognition.recognize(
             image_bytes,
-            attendance_type=str(payload.get("attendance_type") or "auto"),
+            attendance_type="auto",
             camera_id=str(payload.get("camera_id") or "").strip() or None,
             location=payload.get("location"),
             include_preview=bool(payload.get("include_preview", False)),
             similarity_threshold=similarity_threshold(payload),
-            cooldown_seconds=payload.get(
-                "attendance_cooldown_seconds",
-                payload.get("cooldown_seconds", payload.get("cooldownSeconds")),
-            ),
         )
     except RecognitionUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

@@ -52,15 +52,11 @@ export function speakAttendanceOutcome(userName, attendanceType = 'IN', isLate =
   const name = String(userName || '').trim()
   if (!name) return
 
-  const isCheckOut = String(attendanceType).toUpperCase() === 'OUT'
-  let sentence = ''
-
-  if (isCheckOut) {
-    sentence = `Tạm biệt ${name}. Cảm ơn bạn và hẹn gặp lại!`
-  } else if (isLate) {
+  let sentence
+  if (isLate) {
     sentence = `Xin chào ${name}. Bạn đã được ghi nhận vào ca làm việc!`
   } else {
-    sentence = `Xin chào ${name}. Chúc bạn một ngày làm việc vui vẻ và hiệu quả!`
+    sentence = `Xin chào ${name}. Quét mặt thành công!`
   }
 
   speakText(sentence)

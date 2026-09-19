@@ -66,7 +66,7 @@ export async function speakToCamera(text, options = {}) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      text: String(text || 'Xin chào bạn, chấm công thành công').trim(),
+      text: String(text || 'Xin chào bạn, quét mặt thành công').trim(),
       volume: options.volume !== undefined ? options.volume : config.volume,
       profile_id: options.profileId || config.profileId,
     }),
@@ -78,13 +78,11 @@ export function testCameraSpeaker(options = {}) {
   return speakToCamera(options.text || 'Xin chào bạn, kiểm tra loa camera thành công', options)
 }
 
-export function speakAttendanceViaCamera(userName, attendanceType = 'IN', isLate = false, options = {}) {
+export function speakAttendanceViaCamera(userName, _attendanceType = 'auto', isLate = false, options = {}) {
   const name = String(userName || '').trim()
   if (!name) return Promise.resolve({ success: false, message: 'Thiếu tên nhân viên.' })
-  const isCheckOut = ['checkout', 'out'].includes(String(attendanceType).toLowerCase())
-  const sentence = isCheckOut
-    ? `Tạm biệt ${name}, chấm công thành công!`
-    : (isLate ? `Xin chào ${name}, ghi nhận vào ca làm việc!` : `Xin chào ${name}, chấm công thành công!`)
+  const sentence = isLate
+    ? `Xin chào ${name}, lượt quét mặt đã được ghi nhận!`
+    : `Xin chào ${name}, quét mặt thành công!`
   return speakToCamera(sentence, options)
 }
-

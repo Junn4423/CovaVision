@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import binascii
 import asyncio
-import math
 import threading
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -18,9 +17,6 @@ from app.recognition.face_recognition_module import FaceRecognition
 
 class RecognitionUnavailable(RuntimeError):
     """Raised when optional vision dependencies/models are not available."""
-
-
-DEFAULT_ATTENDANCE_COOLDOWN_SECONDS = 30
 
 
 def decode_image_base64(value: str) -> bytes:
@@ -196,26 +192,12 @@ class RecognitionService:
 
         user = result["detected_user"]
         async with self._get_attendance_lock():
-            cooldown = await self._resolve_cooldown_seconds(cooldown_seconds)
-            if cooldown > 0:
-                latest_record = await self._latest_employee_attendance(user["employee_id"])
-                remaining = self._cooldown_remaining_seconds(latest_record, cooldown)
-                if remaining > 0:
-                    return {
-                        **result,
-                        "success": False,
-                        "cooldown": True,
-                        "cooldown_remaining_seconds": remaining,
-                        "message": f"Nhân viên vừa chấm công. Vui lòng thử lại sau {remaining} giây.",
-                        "user": user,
-                        "record": latest_record,
-                        "attendance": latest_record,
-                    }
-
             record = await self.repository.create_attendance({
                 "employee_id": user["employee_id"],
                 "camera_id": camera_id,
-                "attendance_type": attendance_type,
+                # CHECK_IN/CHECK_OUT are intentionally not used. Every
+                # successful face scan is one independent AUTO record.
+                "attendance_type": "auto",
                 "status": "accepted",
                 "captured_at": datetime.now(timezone.utc).isoformat(),
                 "confidence": result["similarity"],
@@ -224,7 +206,7 @@ class RecognitionService:
         response = {
             **result,
             "success": True,
-            "message": "Chấm công thành công.",
+            "message": "Quét mặt thành công, đã ghi nhận.",
             "user": user,
             "record": record,
             "attendance": record,
@@ -241,67 +223,3 @@ class RecognitionService:
         if self._attendance_lock is None:
             self._attendance_lock = asyncio.Lock()
         return self._attendance_lock
-
-    async def _resolve_cooldown_seconds(self, requested: Any) -> int:
-        configured = await self.repository.get_settings()
-        nested = configured.get("attendance_settings")
-        if isinstance(nested, dict):
-            for key in ("cooldown_seconds", "attendance_cooldown_seconds"):
-                if key in nested:
-                    return self._coerce_cooldown_seconds(
-                        nested.get(key),
-                        default=DEFAULT_ATTENDANCE_COOLDOWN_SECONDS,
-                    )
-        for key in ("attendance_cooldown_seconds", "cooldown_seconds"):
-            if key in configured:
-                    return self._coerce_cooldown_seconds(
-                        configured.get(key),
-                        default=DEFAULT_ATTENDANCE_COOLDOWN_SECONDS,
-                    )
-        if requested is not None:
-            return self._coerce_cooldown_seconds(requested, default=0)
-        return DEFAULT_ATTENDANCE_COOLDOWN_SECONDS
-
-    @staticmethod
-    def _coerce_cooldown_seconds(value: Any, *, default: int) -> int:
-        try:
-            parsed = math.floor(float(value))
-        except (TypeError, ValueError, OverflowError):
-            return default
-        return max(0, min(parsed, 7 * 24 * 60 * 60))
-
-    async def _latest_employee_attendance(self, employee_id: str) -> dict[str, Any] | None:
-        records = await self.repository.list_attendance({"employee_id": employee_id})
-        latest_record = None
-        latest_at = None
-        for record in records:
-            if str(record.get("status") or "accepted").lower() != "accepted":
-                continue
-            captured_at = self._parse_timestamp(record.get("captured_at") or record.get("created_at"))
-            if captured_at is not None and (latest_at is None or captured_at > latest_at):
-                latest_at = captured_at
-                latest_record = record
-        return latest_record
-
-    @staticmethod
-    def _parse_timestamp(value: Any) -> datetime | None:
-        if isinstance(value, datetime):
-            parsed = value
-        elif value:
-            try:
-                parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-            except ValueError:
-                return None
-        else:
-            return None
-        return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
-
-    @classmethod
-    def _cooldown_remaining_seconds(cls, record: dict[str, Any] | None, cooldown: int) -> int:
-        if not record:
-            return 0
-        captured_at = cls._parse_timestamp(record.get("captured_at") or record.get("created_at"))
-        if captured_at is None:
-            return 0
-        elapsed = max(0, int((datetime.now(timezone.utc) - captured_at).total_seconds()))
-        return max(0, cooldown - elapsed)

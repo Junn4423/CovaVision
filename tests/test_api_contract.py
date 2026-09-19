@@ -63,6 +63,38 @@ def test_camera_stream_contract_requires_authentication() -> None:
     assert response.status_code == 401
 
 
+def test_camera_speaker_route_uses_backend_adapter(monkeypatch) -> None:
+    import asyncio
+
+    local_repository = InMemoryRepository()
+    local_repository.seed_user("speaker.test", "test-password", role="ADMIN")
+    camera = asyncio.run(local_repository.save_camera({
+        "id": "speaker-camera",
+        "name": "Speaker camera",
+        "camera_type": "rtsp",
+        "connection_url": "rtsp://internal.example/live",
+    }))
+    local_app = create_app(repository=local_repository)
+    local_client = TestClient(local_app)
+    token = local_client.post(
+        "/api/v1/auth/login",
+        json={"username": "speaker.test", "password": "test-password"},
+    ).json()["access_token"]
+
+    monkeypatch.setattr(
+        "app.api.routes.cameras.speak_to_camera",
+        lambda _camera, _payload: {"success": True, "message": "speaker-ok"},
+    )
+    response = local_client.post(
+        f"/api/v1/cameras/{camera['id']}/speak",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"text": "test", "volume": 50},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"success": True, "message": "speaker-ok"}
+
+
 def test_camera_update_without_url_preserves_backend_rtsp_source() -> None:
     import asyncio
 
@@ -220,6 +252,7 @@ def test_recognize_endpoint_accepts_json_base64_and_records_attendance() -> None
     assert response.status_code == 200
     assert response.json()["success"] is True
     assert response.json()["record"]["employee_id"] == "EMP-API"
+    assert response.json()["record"]["attendance_type"] == "auto"
 
 
 def test_admin_contracts_cover_accounts_settings_and_report_export() -> None:

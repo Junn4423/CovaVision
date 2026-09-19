@@ -252,7 +252,12 @@ class InMemoryRepository:
         return self.cameras.pop(camera_id, None) is not None
 
     async def create_attendance(self, payload: dict[str, Any]) -> dict[str, Any]:
-        record = {"id": str(uuid4()), "created_at": _now().isoformat(), **payload}
+        record = {
+            "id": str(uuid4()),
+            "created_at": _now().isoformat(),
+            **payload,
+            "attendance_type": "auto",
+        }
         self.attendance.append(record)
         return record
 
@@ -647,13 +652,7 @@ class PrismaRepository:
             )
         camera_id = str(payload.get("camera_id") or "").strip()
         camera = await self.client.camera.find_unique(where={"id": camera_id}) if camera_id else None
-        attendance_type = {
-            "CHECKIN": "CHECK_IN",
-            "CHECK_IN": "CHECK_IN",
-            "CHECKOUT": "CHECK_OUT",
-            "CHECK_OUT": "CHECK_OUT",
-            "AUTO": "AUTO",
-        }.get(str(payload.get("attendance_type") or "AUTO").upper(), "AUTO")
+        attendance_type = "AUTO"
         status = str(payload.get("status") or "ACCEPTED").upper()
         if status not in {"ACCEPTED", "REJECTED", "PENDING"}:
             status = "ACCEPTED"
@@ -904,7 +903,7 @@ class PrismaRepository:
 
     @staticmethod
     def _attendance_to_dict(record: Any) -> dict[str, Any]:
-        attendance_type = str(record.type).lower().replace("check_in", "checkin").replace("check_out", "checkout")
+        attendance_type = "auto"
         employee = getattr(record, "employee", None)
         camera = getattr(record, "camera", None)
         return {

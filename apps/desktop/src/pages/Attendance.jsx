@@ -4,12 +4,6 @@ import { CheckCircle2, Volume2, Sparkles, Send, Radio, Settings2 } from 'lucide-
 import { api } from '../services/api'
 import { openBackendMjpegStream } from '../services/backendMjpegStream'
 import { ROUTES } from '../config/routes'
-import {
-  ATTENDANCE_MODE_OPTIONS,
-  ATTENDANCE_SETTINGS_EVENT,
-  getAttendanceSettings,
-  toCooldownTotalSeconds,
-} from '../services/attendanceSettings'
 import { speakAttendanceOutcome } from '../services/ttsService'
 import { isLikelyFaceFrame } from '../utils/faceFrameCheck'
 import { normalizeFaceDetectionResponse } from '../utils/faceDetection'
@@ -381,33 +375,6 @@ function cleanLocationDisplayText(value) {
   return (head || raw).replace(LOCATION_COORDINATE_SUFFIX_PATTERN, '').trim()
 }
 
-function formatCooldownText(totalSeconds) {
-  const safeSeconds = Math.max(0, Math.trunc(Number(totalSeconds) || 0))
-  const hours = Math.floor(safeSeconds / 3600)
-  const minutes = Math.floor((safeSeconds % 3600) / 60)
-  const seconds = safeSeconds % 60
-  const parts = []
-
-  if (hours > 0) {
-    parts.push(`${hours} giờ`)
-  }
-  if (minutes > 0) {
-    parts.push(`${minutes} phút`)
-  }
-  if (seconds > 0 || parts.length === 0) {
-    parts.push(`${seconds} giây`)
-  }
-
-  return parts.join(' ')
-}
-
-function formatCountdownClock(totalSeconds) {
-  const safeSeconds = Math.max(0, Math.trunc(Number(totalSeconds) || 0))
-  const minutes = Math.floor(safeSeconds / 60)
-  const seconds = safeSeconds % 60
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-}
-
 function computeContainedVideoRect(containerWidth, containerHeight, frameWidth, frameHeight) {
   if (!containerWidth || !containerHeight || !frameWidth || !frameHeight) return null
 
@@ -480,13 +447,10 @@ export default function Attendance() {
   const [todayRecords, setTodayRecords] = useState([])
   const [attendanceBusy, setAttendanceBusy] = useState(false)
   const [attendanceFeedback, setAttendanceFeedback] = useState(null)
-  const [cooldownPopup, setCooldownPopup] = useState({ open: false, secondsLeft: 0, employeeName: '' })
   const [lastCapturePreview, setLastCapturePreview] = useState(null)
   const [liveDetections, setLiveDetections] = useState([])
   const [liveDetectionFrame, setLiveDetectionFrame] = useState({ width: 0, height: 0 })
   const [liveDetectionError, setLiveDetectionError] = useState('')
-  const [attendanceSettings, setAttendanceSettings] = useState(() => getAttendanceSettings())
-  const [selectedAttendanceType, setSelectedAttendanceType] = useState('checkin')
   const [previewViewport, setPreviewViewport] = useState({ width: 0, height: 0 })
   const [browserDevices, setBrowserDevices] = useState([])
   const [browserDevicesLoading, setBrowserDevicesLoading] = useState(false)
@@ -523,7 +487,6 @@ export default function Attendance() {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
 
-  const cooldownPopupTimerRef = useRef(null)
   const snapshotTimerRef = useRef(null)
   const snapshotInFlightRef = useRef(false)
   const detectInFlightRef = useRef(false)
@@ -531,7 +494,6 @@ export default function Attendance() {
   const autoAttendanceInFlightRef = useRef(false)
   const autoLocalAttendanceInFlightKeysRef = useRef(new Set())
   const autoAttendanceStreakRef = useRef({ userId: null, count: 0 })
-  const autoAttendanceCooldownRef = useRef({})
   const faceAbsentStreakRef = useRef(0)
   const readyStreakRef = useRef(0)
   const readyUserKeyRef = useRef('')
@@ -562,89 +524,14 @@ export default function Attendance() {
     && typeof navigator.mediaDevices.getUserMedia === 'function'
     && typeof navigator.mediaDevices.enumerateDevices === 'function'
   const requiresSecureContext = typeof window !== 'undefined' && !window.isSecureContext
-  const attendanceMode = attendanceSettings.mode === ATTENDANCE_MODE_OPTIONS.autoRecord
-    ? ATTENDANCE_MODE_OPTIONS.autoRecord
-    : ATTENDANCE_MODE_OPTIONS.checkinCheckout
-  const attendanceCooldownSeconds = toCooldownTotalSeconds(attendanceSettings)
-  const autoAttendanceCooldownMs = attendanceMode === ATTENDANCE_MODE_OPTIONS.checkinCheckout && attendanceCooldownSeconds > 0
-    ? attendanceCooldownSeconds * 1000
-    : (attendanceMode === ATTENDANCE_MODE_OPTIONS.checkinCheckout ? AUTO_ATTENDANCE_FALLBACK_COOLDOWN_MS : 0)
-  const activeAttendanceType = attendanceMode === ATTENDANCE_MODE_OPTIONS.checkinCheckout
-    ? selectedAttendanceType
-    : 'auto'
-  const attendanceModeLabel = attendanceMode === ATTENDANCE_MODE_OPTIONS.checkinCheckout
-    ? (selectedAttendanceType === 'checkout' ? 'Checkout' : 'Checkin')
-    : 'Ghi chấm công'
-
-  function clearCooldownPopupTimer() {
-    if (cooldownPopupTimerRef.current) {
-      clearInterval(cooldownPopupTimerRef.current)
-      cooldownPopupTimerRef.current = null
-    }
-  }
-
-  function hideCooldownPopup() {
-    clearCooldownPopupTimer()
-    setCooldownPopup({ open: false, secondsLeft: 0, employeeName: '' })
-  }
-
-  function showCooldownPopup(remainingSeconds, employeeName = '') {
-    const safeSeconds = Math.max(0, Math.ceil(Number(remainingSeconds) || 0))
-    if (safeSeconds <= 0) {
-      hideCooldownPopup()
-      return
-    }
-
-    clearCooldownPopupTimer()
-    setCooldownPopup({
-      open: true,
-      secondsLeft: safeSeconds,
-      employeeName: String(employeeName || '').trim(),
-    })
-
-    cooldownPopupTimerRef.current = setInterval(() => {
-      setCooldownPopup(prev => {
-        if (!prev.open) {
-          return prev
-        }
-
-        const nextSecondsLeft = prev.secondsLeft - 1
-        if (nextSecondsLeft <= 0) {
-          clearCooldownPopupTimer()
-          return { open: false, secondsLeft: 0, employeeName: '' }
-        }
-
-        return {
-          ...prev,
-          secondsLeft: nextSecondsLeft,
-        }
-      })
-    }, 1000)
-  }
-
   useEffect(() => {
     initializePage()
     const attendanceTimer = setInterval(loadTodayRecords, 15000)
     return () => {
       clearInterval(attendanceTimer)
       if (detectTimerRef.current) clearInterval(detectTimerRef.current)
-      clearCooldownPopupTimer()
       stopBrowserCameraStream()
       void api.stopCamera().catch(() => {})
-    }
-  }, [])
-
-  useEffect(() => {
-    const refreshAttendanceSettings = () => {
-      setAttendanceSettings(getAttendanceSettings())
-    }
-
-    refreshAttendanceSettings()
-    window.addEventListener(ATTENDANCE_SETTINGS_EVENT, refreshAttendanceSettings)
-    window.addEventListener('storage', refreshAttendanceSettings)
-    return () => {
-      window.removeEventListener(ATTENDANCE_SETTINGS_EVENT, refreshAttendanceSettings)
-      window.removeEventListener('storage', refreshAttendanceSettings)
     }
   }, [])
 
@@ -807,12 +694,11 @@ export default function Attendance() {
 
   useEffect(() => {
     autoAttendanceStreakRef.current = { userId: null, count: 0 }
-    autoAttendanceCooldownRef.current = {}
     processedFaceLockRef.current = null
     readyStreakRef.current = 0
     readyUserKeyRef.current = ''
     faceAbsentStreakRef.current = 0
-  }, [attendanceMode, selectedAttendanceType, autoAttendanceCooldownMs])
+  }, [cameraRunning, activeCameraId])
 
   useEffect(() => {
     if (detectTimerRef.current) {
@@ -881,7 +767,7 @@ export default function Attendance() {
       const activeLock = processedFaceLockRef.current
       if (activeLock) {
         const lockAge = now - (activeLock.lockedAt || 0)
-        // Trong 5 giây đầu sau khi điểm danh thành công:
+        // Trong 5 giây đầu sau khi ghi nhận thành công:
         // TUYỆT ĐỐI KHÔNG GỌI SERVER LẶP LẠI! Người này đang nghe loa và bước đi!
         if (lockAge < 5000) {
           scheduleNextScan(PRECHECK_LOCKED_DELAY_MS)
@@ -1080,11 +966,7 @@ export default function Attendance() {
           }
 
           if (readyStreakRef.current >= PRECHECK_READY_STREAK_REQUIRED) {
-            const currentTs = Date.now()
-            const nextAllowedAt = Number(autoAttendanceCooldownRef.current[detectedUserKey] || 0)
-            const cooldownPassed = attendanceMode === ATTENDANCE_MODE_OPTIONS.autoRecord || currentTs >= nextAllowedAt
-
-            if (cooldownPassed && !autoLocalAttendanceInFlightKeysRef.current.has(detectedUserKey)) {
+            if (!autoLocalAttendanceInFlightKeysRef.current.has(detectedUserKey)) {
               autoLocalAttendanceInFlightKeysRef.current.add(detectedUserKey)
 
               // Khóa mặt ngay lập tức trước khi gọi network để tránh gửi trùng lặp
@@ -1100,12 +982,9 @@ export default function Attendance() {
               readyUserKeyRef.current = ''
               nextInterval = PRECHECK_LOCKED_DELAY_MS
 
-              if (attendanceMode === ATTENDANCE_MODE_OPTIONS.checkinCheckout) {
-                autoAttendanceCooldownRef.current[detectedUserKey] = currentTs + autoAttendanceCooldownMs
-              }
               autoAttendanceInFlightRef.current = true
 
-              captureBrowserAttendance(activeAttendanceType, {
+              captureBrowserAttendance('auto', {
                 autoTriggered: true,
                 detectedUserId: detectedUserKey,
               }).finally(() => {
@@ -1143,9 +1022,6 @@ export default function Attendance() {
     cameraRunning,
     cameraRuntimeMode,
     clientAttendanceCameraActive,
-    attendanceMode,
-    activeAttendanceType,
-    autoAttendanceCooldownMs,
   ])
 
   useEffect(() => {
@@ -1478,11 +1354,11 @@ export default function Attendance() {
     setCameraLoading(false)
   }
 
-  async function captureBrowserAttendance(attendanceType = 'checkin', options = {}) {
+  async function captureBrowserAttendance(_attendanceType = 'auto', options = {}) {
     const detectedUserId = String(options?.detectedUserId || '').trim()
 
     if (!cameraRunning || !clientAttendanceCameraActive) {
-      window.alert('Hãy bật camera trước khi điểm danh.')
+      window.alert('Hãy bật camera trước khi quét mặt.')
       return { success: false }
     }
 
@@ -1522,14 +1398,6 @@ export default function Attendance() {
       setLastCapturePreview(null)
     }
 
-    const rawAttendanceType = String(attendanceType || 'checkin').toLowerCase()
-    const normalizedAttendanceType = rawAttendanceType === 'checkout'
-      ? 'checkout'
-      : (rawAttendanceType === 'auto' ? 'auto' : 'checkin')
-    const actionLabel = normalizedAttendanceType === 'checkout'
-      ? 'Checkout'
-      : (normalizedAttendanceType === 'auto' ? 'Ghi chấm công' : 'Checkin')
-
     try {
       // Use async toBlob for attendance capture too (non-blocking)
       const captureImageBase64 = await new Promise((resolve) => {
@@ -1547,11 +1415,7 @@ export default function Attendance() {
       const payload = {
         image_base64: captureImageBase64,
         include_preview: true,
-        attendance_type: normalizedAttendanceType,
-        attendance_cooldown_seconds: attendanceCooldownSeconds,
       }
-
-
 
       const res = await api.attendanceImageBase64(payload)
       const capturePreview = res?.preview_image_base64
@@ -1577,25 +1441,11 @@ export default function Attendance() {
           setActiveFaceLock(lockObj)
         }
 
-        let successMessage = ''
-        if (attendanceMode === ATTENDANCE_MODE_OPTIONS.autoRecord || normalizedAttendanceType === 'auto') {
-          successMessage = employeeName
-            ? `Đã quét mặt thành công cho ${employeeName}`
-            : 'Đã quét mặt thành công'
-        } else if (normalizedAttendanceType === 'checkout') {
-          successMessage = employeeName
-            ? `Đã Checkout thành công cho ${employeeName}`
-            : 'Đã Checkout thành công'
-        } else {
-          successMessage = employeeName
-            ? `Đã Checkin thành công cho ${employeeName}`
-            : 'Đã Checkin thành công'
-        }
-
-        hideCooldownPopup()
         setAttendanceFeedback({
           type: 'success',
-          message: successMessage,
+          message: employeeName
+            ? `Đã ghi nhận quét mặt cho ${employeeName}`
+            : 'Đã ghi nhận quét mặt',
           detail: cleanLocationDisplayText(res.location_text),
           user: res?.user || null,
           time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
@@ -1620,7 +1470,7 @@ export default function Attendance() {
           const targetCameraId = currentSpeakerConfig.cameraId || speakerInfo.cameraId || targetCam?.id
 
           console.log(`[Attendance] 📢 Phát loa camera ngoài cho "${employeeName}" qua API`)
-          speakAttendanceViaCamera(employeeName, normalizedAttendanceType, res?.is_late, {
+          speakAttendanceViaCamera(employeeName, 'auto', res?.is_late, {
             cameraId: targetCameraId,
             volume: currentSpeakerConfig.volume,
             profileId: currentSpeakerConfig.profileId,
@@ -1631,73 +1481,33 @@ export default function Attendance() {
           })
         } else if (localStorage.getItem('covavision.tts_enabled') !== 'false') {
           console.log(`[Attendance] 💻 Phát loa máy tính (PC) cho "${employeeName}"`)
-          speakAttendanceOutcome(employeeName, normalizedAttendanceType, res?.is_late)
+          speakAttendanceOutcome(employeeName, 'auto', res?.is_late)
         }
 
         await loadTodayRecords()
         return { success: true, response: res }
       } else {
-        const failureMessage = res.message || `Không thể ${actionLabel} bằng camera trình duyệt`
-        const lowerFailureMessage = failureMessage.toLowerCase()
-        const cooldownRemainingRaw = Number(res?.cooldown_remaining_seconds)
-        const cooldownRemainingSeconds = Number.isFinite(cooldownRemainingRaw)
-          ? Math.max(0, Math.ceil(cooldownRemainingRaw))
-          : 0
-        const isCooldownMessage = (
-          lowerFailureMessage.includes('chỉ được')
-          || lowerFailureMessage.includes('gần đây')
-          || lowerFailureMessage.includes('vừa điểm danh')
-          || cooldownRemainingSeconds > 0
-        )
-
-        if (isCooldownMessage) {
-          const popupSeconds = cooldownRemainingSeconds > 0
-            ? cooldownRemainingSeconds
-            : Math.max(1, Math.ceil(attendanceCooldownSeconds || 0))
-          const employeeName = String(res?.user?.name || '').trim()
-
-          showCooldownPopup(popupSeconds, employeeName)
-          if (detectedUserId) {
-            const now = Date.now()
-            const currentNextAllowedAt = Number(autoAttendanceCooldownRef.current[detectedUserId] || 0)
-            const nextAllowedAt = now + (popupSeconds * 1000)
-            autoAttendanceCooldownRef.current[detectedUserId] = Math.max(currentNextAllowedAt, nextAllowedAt)
-            const lockObj = {
-              userKey: detectedUserId,
-              name: employeeName,
-              lockedAt: Date.now(),
-            }
-            processedFaceLockRef.current = lockObj
-            setActiveFaceLock(lockObj)
-          }
-        } else {
-          if (detectedUserId) {
-            autoAttendanceCooldownRef.current[detectedUserId] = Date.now() + 3000
-          }
-          processedFaceLockRef.current = null
-          setActiveFaceLock(null)
-          readyUserKeyRef.current = ''
-          readyStreakRef.current = 0
-        }
+        const failureMessage = res.message || 'Không thể ghi nhận quét mặt từ camera.'
+        processedFaceLockRef.current = null
+        setActiveFaceLock(null)
+        readyUserKeyRef.current = ''
+        readyStreakRef.current = 0
 
         setAttendanceFeedback({
           type: 'error',
-          message: isCooldownMessage ? 'Đang bị giới hạn quét mặt' : failureMessage,
+          message: failureMessage,
           detail: cleanLocationDisplayText(res?.location_text),
         })
-        return { success: false, response: res, cooldown: isCooldownMessage }
+        return { success: false, response: res }
       }
     } catch (error) {
-      if (detectedUserId) {
-        autoAttendanceCooldownRef.current[detectedUserId] = Date.now() + 3000
-      }
       processedFaceLockRef.current = null
       setActiveFaceLock(null)
       readyUserKeyRef.current = ''
       readyStreakRef.current = 0
       setAttendanceFeedback({
         type: 'error',
-        message: error?.message || 'Không thể gửi ảnh điểm danh',
+        message: error?.message || 'Không thể gửi ảnh quét mặt',
         detail: '',
       })
       return { success: false, error }
@@ -1760,22 +1570,10 @@ export default function Attendance() {
 
   return (
     <div className="grid xl:grid-cols-[1.1fr_0.9fr] gap-4 lg:gap-6">
-      {cooldownPopup.open && (
-        <div className="fixed right-4 top-4 z-50 w-[min(92vw,22rem)] rounded-2xl border border-amber-200 bg-amber-50 shadow-xl px-4 py-3 text-amber-800">
-          <p className="text-sm font-semibold">Đang bị giới hạn quét mặt</p>
-          <p className="mt-1 text-sm">
-            Thời gian cho lần quét tiếp theo: <span className="font-bold">{formatCountdownClock(cooldownPopup.secondsLeft)}</span>
-          </p>
-          {cooldownPopup.employeeName && (
-            <p className="mt-1 text-xs text-amber-700">Nhân viên: {cooldownPopup.employeeName}</p>
-          )}
-        </div>
-      )}
-
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
         <div className="px-4 sm:px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Bắt đầu chấm công toàn công ty</h1>
+          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Bắt đầu quét khuôn mặt</h1>
             <p className="text-sm text-slate-500 mt-1">
               Nhận diện khuôn mặt tự động qua camera
             </p>
@@ -1885,9 +1683,9 @@ export default function Attendance() {
                 }`} />
                 <span className="font-medium tracking-wide truncate">
                   {activeFaceLock
-                    ? `Đã điểm danh cho ${activeFaceLock.name}`
+                    ? `Đã ghi nhận quét mặt cho ${activeFaceLock.name}`
                     : autoAttendanceInFlightRef.current
-                    ? 'Đang xác thực điểm danh...'
+                    ? 'Đang ghi nhận lượt quét...'
                     : liveRecognizedNames.length > 0
                     ? `Đang nhận diện: ${liveRecognizedNames.join(', ')}`
                     : liveDetections.length > 0
@@ -1946,7 +1744,7 @@ export default function Attendance() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-bold text-white truncate">
-                    Đã điểm danh: <span className="text-emerald-300">{activeFaceLock.name}</span>
+                    Đã ghi nhận: <span className="text-emerald-300">{activeFaceLock.name}</span>
                   </p>
                   <p className="text-xs text-slate-300 truncate mt-0.5">
                     Vui lòng rời khỏi khung hình để tiếp tục lượt tiếp theo
@@ -1961,44 +1759,11 @@ export default function Attendance() {
 
           {clientAttendanceCameraActive && cameraRunning && (
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs sm:text-sm text-slate-700 space-y-2">
-              {attendanceMode === ATTENDANCE_MODE_OPTIONS.checkinCheckout ? (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedAttendanceType('checkin')}
-                    disabled={attendanceBusy}
-                    className={`w-full sm:w-auto px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm ${
-                      selectedAttendanceType === 'checkin'
-                        ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                        : 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50'
-                    }`}
-                  >
-                    Chế độ Checkin
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedAttendanceType('checkout')}
-                    disabled={attendanceBusy}
-                    className={`w-full sm:w-auto px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm ${
-                      selectedAttendanceType === 'checkout'
-                        ? 'bg-amber-500 text-white hover:bg-amber-600'
-                        : 'bg-white text-amber-700 border border-amber-200 hover:bg-amber-50'
-                    }`}
-                  >
-                    Chế độ Checkout
-                  </button>
-                </div>
-              ) : (
-                <p className="text-slate-600">
-                  Đang bật chế độ ghi chấm công tự động: mỗi lần quét khuôn mặt hợp lệ sẽ được lưu thành một lần ghi chấm công độc lập.
-                </p>
-              )}
-
-              <p className="text-slate-500">
-                Trạng thái đang ghi: <span className="font-semibold text-slate-700">{attendanceModeLabel}</span>. Hệ thống tự chụp và gửi khi phát hiện khuôn mặt hợp lệ.
+              <p className="text-slate-600">
+                Mỗi lần nhận diện khuôn mặt hợp lệ sẽ tạo một bản ghi quét mặt độc lập trong cơ sở dữ liệu.
               </p>
               <p className="text-slate-500">
-                Giới hạn thời gian giữa 2 lần ghi: <span className="font-semibold text-slate-700">{formatCooldownText(attendanceCooldownSeconds)}</span>.
+                Trạng thái: <span className="font-semibold text-slate-700">Đang quét và ghi nhận tự động.</span>
               </p>
             </div>
           )}
@@ -2237,35 +2002,31 @@ export default function Attendance() {
 
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100">
-            <h2 className="text-lg font-semibold text-slate-800">Điểm danh hôm nay</h2>
+            <h2 className="text-lg font-semibold text-slate-800">Lượt quét hôm nay</h2>
           </div>
 
           <div className="divide-y divide-slate-100">
             {todayRecords.length === 0 ? (
               <div className="px-5 py-10 text-center text-slate-400 text-sm">
-                Chưa có bản ghi điểm danh hôm nay
+                Chưa có bản ghi quét mặt hôm nay
               </div>
             ) : (
               todayRecords.map((record, index) => (
-                <div key={`${record.employee_id}-${record.check_in_time || record.time}-${record.check_out_time || ''}-${index}`} className="px-5 py-4 flex items-start justify-between gap-4">
+                <div key={`${record.id || record.employee_id}-${record.captured_at || record.time || index}`} className="px-5 py-4 flex items-start justify-between gap-4">
                   <div>
                     <p className="font-semibold text-slate-800">{record.name}</p>
                     <p className="text-sm text-slate-500 mt-1">
                       {record.employee_id} · {record.department || 'Chưa có phòng ban'}
                     </p>
-                    {record.check_in_location_text && (
-                      <p className="text-xs text-slate-400 mt-1">Vị trí Checkin: {cleanLocationDisplayText(record.check_in_location_text)}</p>
-                    )}
-                    {record.check_out_location_text && (
-                      <p className="text-xs text-slate-400 mt-1">Vị trí Checkout: {cleanLocationDisplayText(record.check_out_location_text)}</p>
+                    {record.location_text && (
+                      <p className="text-xs text-slate-400 mt-1">Vị trí: {cleanLocationDisplayText(record.location_text)}</p>
                     )}
                   </div>
                   <div className="text-right shrink-0">
                     <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
-                      {record.status || 'Điểm danh'}
+                      {record.status || 'Đã ghi nhận'}
                     </span>
-                    <p className="text-sm text-slate-500 mt-2">Vào: {record.check_in_time || record.time || '--:--:--'}</p>
-                    <p className="text-sm text-slate-500">Ra: {record.check_out_time || '--:--:--'}</p>
+                    <p className="text-sm text-slate-500 mt-2">{record.captured_at ? new Date(record.captured_at).toLocaleTimeString('vi-VN') : (record.time || '--:--:--')}</p>
                   </div>
                 </div>
               ))
