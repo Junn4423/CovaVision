@@ -2,7 +2,7 @@ import React, {useCallback, useEffect, useState} from 'react';
 import {ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {FaceAttendancePanel} from '../../components/attendance/FaceAttendancePanel';
 import {api} from '../../services/api';
-import {colors} from '../../theme';
+import {colors, radii, spacing} from '../../design-system';
 
 type Props = {adminUser?: any; onBack: () => void};
 
@@ -84,17 +84,17 @@ function CameraChip({title, active, onPress}: {title: string; active: boolean; o
 const styles = StyleSheet.create({
   safe: {flex: 1, backgroundColor: colors.pageBackground},
   loading: {flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12},
-  header: {height: 64, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, gap: 10},
-  back: {width: 38, height: 38, borderRadius: 12, backgroundColor: '#e2e8f0', alignItems: 'center', justifyContent: 'center'},
-  backText: {fontSize: 30, lineHeight: 32, color: '#0f172a'},
+  header: {height: 64, flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, gap: 10},
+  back: {width: 40, height: 40, borderRadius: radii.lg || 12, backgroundColor: colors.slate[100], alignItems: 'center', justifyContent: 'center'},
+  backText: {fontSize: 28, lineHeight: 30, color: colors.textPrimary},
   headerText: {gap: 2},
-  title: {fontSize: 20, fontWeight: '900', color: '#0f172a'},
-  muted: {fontSize: 12, color: '#64748b'},
+  title: {fontSize: 20, fontWeight: '900', color: colors.textPrimary},
+  muted: {fontSize: 12, color: colors.textSecondary},
   cameraArea: {flex: 1, minHeight: 0},
-  cameraPicker: {paddingHorizontal: 16, paddingVertical: 10, gap: 8},
-  chip: {maxWidth: 190, borderRadius: 10, borderWidth: 1, borderColor: '#cbd5e1', backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 9},
-  chipActive: {borderColor: '#2563eb', backgroundColor: '#eff6ff'},
-  chipText: {fontSize: 12, fontWeight: '700', color: '#475569'},
-  chipTextActive: {color: '#1d4ed8'},
-  status: {marginHorizontal: 16, marginBottom: 12, borderRadius: 10, backgroundColor: '#eff6ff', color: '#1e40af', padding: 10, fontSize: 12},
+  cameraPicker: {paddingHorizontal: spacing.md, paddingVertical: 10, gap: 8},
+  chip: {maxWidth: 190, borderRadius: radii.md || 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, paddingHorizontal: 12, paddingVertical: 9},
+  chipActive: {borderColor: colors.primary, backgroundColor: colors.primaryBg},
+  chipText: {fontSize: 12, fontWeight: '700', color: colors.textSecondary},
+  chipTextActive: {color: colors.primary},
+  status: {marginHorizontal: spacing.md, marginBottom: 12, borderRadius: radii.md || 10, backgroundColor: colors.primaryBg, borderColor: colors.primaryBorder, borderWidth: 1, color: colors.primary, padding: 10, fontSize: 12, fontWeight: '600'},
 });
