@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { ThemeProvider } from './contexts/ThemeContext'
 import { ToastProvider } from './components/Toast'
 import Layout from './components/Layout'
 import Login from './pages/Login'
@@ -19,23 +20,26 @@ export default function App() {
   }, [])
 
   return (
-    <ToastProvider>
-      <HashRouter>
-        <Routes>
-          <Route path={ROUTES.login} element={<Login />} />
-          <Route element={<Layout />}>
-            <Route index element={<Navigate to={ROUTES.dashboard} replace />} />
-            <Route path={ROUTES.dashboard} element={<Dashboard />} />
-            <Route path={ROUTES.attendance} element={<Attendance />} />
-            <Route path={ROUTES.cameras} element={<Cameras />} />
-            <Route path={ROUTES.employees} element={<ManageFaces />} />
-            <Route path={ROUTES.reports} element={<Report />} />
-            <Route path={ROUTES.accounts} element={<AccountManagement />} />
-            <Route path={ROUTES.settings} element={<SystemSettings />} />
-          </Route>
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </HashRouter>
-    </ToastProvider>
+    <ThemeProvider>
+      <ToastProvider>
+        <HashRouter>
+          <Routes>
+            <Route path={ROUTES.login} element={<Login />} />
+            <Route element={<Layout />}>
+              <Route index element={<Navigate to={ROUTES.dashboard} replace />} />
+              <Route path={ROUTES.dashboard} element={<Dashboard />} />
+              <Route path={ROUTES.attendance} element={<Attendance />} />
+              <Route path={ROUTES.cameras} element={<Cameras />} />
+              <Route path={ROUTES.employees} element={<ManageFaces />} />
+              <Route path={ROUTES.reports} element={<Report />} />
+              <Route path={ROUTES.accounts} element={<AccountManagement />} />
+              <Route path={ROUTES.settings} element={<SystemSettings />} />
+            </Route>
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </HashRouter>
+      </ToastProvider>
+    </ThemeProvider>
   )
 }
+

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Outlet, useLocation } from 'react-router-dom'
-import { Activity, BarChart3, Camera, LogOut, Menu, ScanFace, Settings, UserRound, Users, X } from 'lucide-react'
+import { Activity, BarChart3, Camera, LogOut, Menu, Moon, ScanFace, Settings, Sun, UserRound, Users, X } from 'lucide-react'
 import { api, clearSessionToken, SESSION_EXPIRED_EVENT } from '../services/api'
+import { useTheme } from '../contexts/ThemeContext'
 import { ROUTES } from '../config/routes'
 
 const navGroups = [
@@ -23,6 +24,7 @@ export default function Layout() {
   const [apiStatus, setApiStatus] = useState('checking')
   const [authState, setAuthState] = useState({ loading: true, authenticated: false, user: null })
   const location = useLocation()
+  const { isDark, toggleTheme } = useTheme()
 
   useEffect(() => {
     checkSession()
@@ -78,38 +80,89 @@ export default function Layout() {
     }
   }
 
-  if (authState.loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-sm text-slate-500">Đang kiểm tra phiên...</div>
+  if (authState.loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--cv-bg-page)' }}>
+        <div className="flex flex-col items-center gap-3">
+          <div className="cv-spinner" style={{ width: 32, height: 32 }} />
+          <span className="text-sm font-medium" style={{ color: 'var(--cv-text-tertiary)' }}>Đang kiểm tra phiên...</span>
+        </div>
+      </div>
+    )
+  }
+
   if (!authState.authenticated) return <Navigate to={ROUTES.login} replace />
 
-  const statusClass = apiStatus === 'ok' ? 'bg-emerald-500' : apiStatus === 'error' ? 'bg-red-500' : 'bg-amber-500 animate-pulse'
   const userName = authState.user?.name || authState.user?.username || 'Quản trị viên'
+  const userRole = authState.user?.role || 'ADMIN'
 
   return (
-    <div className="min-h-dvh bg-slate-50 text-slate-900">
-      {sidebarOpen && <div className="fixed inset-0 z-40 bg-slate-900/40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-[280px] border-r border-slate-200 bg-white transition-transform lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="flex h-16 items-center justify-between border-b border-slate-100 px-5">
+    <div className="min-h-dvh" style={{ background: 'var(--cv-bg-page)', color: 'var(--cv-text-primary)' }}>
+      {/* Overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 lg:hidden cv-fade-in"
+          style={{ background: 'var(--cv-bg-overlay)' }}
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col transition-transform duration-300 ease-out lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        style={{
+          width: 'var(--cv-sidebar-width)',
+          background: 'var(--cv-bg-sidebar)',
+          borderRight: '1px solid var(--cv-border-default)',
+        }}
+      >
+        {/* Logo */}
+        <div className="flex h-16 items-center justify-between px-5" style={{ borderBottom: '1px solid var(--cv-border-light)' }}>
           <div>
-            <div className="text-lg font-black tracking-tight text-slate-900">CovaVision</div>
-            <div className="mt-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-              <span className={`h-1.5 w-1.5 rounded-full ${statusClass}`} />
-              {apiStatus === 'ok' ? 'API online' : apiStatus === 'error' ? 'API offline' : 'Đang kiểm tra'}
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: 'linear-gradient(135deg, var(--cv-brand-600), var(--cv-brand-700))' }}>
+                <ScanFace size={16} className="text-white" />
+              </div>
+              <span className="text-lg font-black tracking-tight" style={{ color: 'var(--cv-text-primary)' }}>CovaVision</span>
+            </div>
+            <div className="mt-0.5 flex items-center gap-1.5 pl-[42px]">
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{
+                  background: apiStatus === 'ok' ? 'var(--cv-accent-500)' : apiStatus === 'error' ? 'var(--cv-danger-500)' : 'var(--cv-warning-500)',
+                  animation: apiStatus === 'checking' ? 'cvPulse 2s infinite' : 'none',
+                }}
+              />
+              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--cv-text-tertiary)' }}>
+                {apiStatus === 'ok' ? 'Online' : apiStatus === 'error' ? 'Offline' : 'Kiểm tra...'}
+              </span>
             </div>
           </div>
-          <button className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 lg:hidden" onClick={() => setSidebarOpen(false)} aria-label="Đóng menu"><X size={18} /></button>
+          <button
+            className="rounded-lg p-2 lg:hidden"
+            style={{ color: 'var(--cv-text-tertiary)' }}
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Đóng menu"
+          >
+            <X size={18} />
+          </button>
         </div>
-        <nav className="space-y-5 overflow-y-auto px-3 py-5">
+
+        {/* Navigation */}
+        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
           {navGroups.map(group => (
             <div key={group.title}>
-              <div className="px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">{group.title}</div>
-              <div className="space-y-1">
+              <div className="px-3 pb-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--cv-text-tertiary)' }}>
+                {group.title}
+              </div>
+              <div className="space-y-0.5">
                 {group.items.map(item => (
                   <NavLink
                     key={item.to}
                     to={item.to}
                     end={item.to === ROUTES.dashboard}
                     onClick={() => window.innerWidth < 1024 && setSidebarOpen(false)}
-                    className={({ isActive }) => `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${isActive ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}
+                    className={({ isActive }) => `cv-sidebar-link ${isActive ? 'active' : ''}`}
                   >
                     <item.icon size={17} />
                     {item.label}
@@ -119,21 +172,72 @@ export default function Layout() {
             </div>
           ))}
         </nav>
-        <div className="absolute inset-x-0 bottom-0 border-t border-slate-100 bg-white p-4">
+
+        {/* Footer */}
+        <div className="p-4" style={{ borderTop: '1px solid var(--cv-border-light)' }}>
           <div className="mb-3 flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-sm font-bold text-blue-700">{userName[0]?.toUpperCase()}</div>
-            <div className="min-w-0"><div className="truncate text-sm font-semibold">{userName}</div><div className="truncate text-xs text-slate-400">CovaVision</div></div>
+            <div
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-bold"
+              style={{ background: 'linear-gradient(135deg, var(--cv-brand-100), var(--cv-brand-200))', color: 'var(--cv-brand-700)' }}
+            >
+              {userName[0]?.toUpperCase()}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold" style={{ color: 'var(--cv-text-primary)' }}>{userName}</div>
+              <div className="truncate text-xs" style={{ color: 'var(--cv-text-tertiary)' }}>{userRole}</div>
+            </div>
+            <button
+              onClick={toggleTheme}
+              className="cv-btn-ghost cv-btn-icon"
+              aria-label={isDark ? 'Chế độ sáng' : 'Chế độ tối'}
+              title={isDark ? 'Chế độ sáng' : 'Chế độ tối'}
+            >
+              {isDark ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
           </div>
-          <button onClick={handleLogout} className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-red-50 hover:text-red-600"><LogOut size={15} /> Đăng xuất</button>
+          <button
+            onClick={handleLogout}
+            className="cv-btn cv-btn-ghost w-full justify-center"
+            style={{ color: 'var(--cv-text-secondary)' }}
+          >
+            <LogOut size={15} /> Đăng xuất
+          </button>
         </div>
       </aside>
-      <div className="min-h-dvh lg:pl-[280px]">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-slate-200 bg-white/90 px-4 backdrop-blur sm:px-6">
-          <button onClick={() => setSidebarOpen(value => !value)} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 lg:hidden" aria-label="Mở menu"><Menu size={20} /></button>
-          <div className="flex-1 text-sm font-semibold text-slate-700">Hệ thống điểm danh khuôn mặt</div>
-          <NavLink to={ROUTES.attendance} className="hidden rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700 sm:inline-flex">Bắt đầu điểm danh</NavLink>
+
+      {/* Main Content */}
+      <div className="min-h-dvh transition-[padding] duration-300 lg:pl-[280px]">
+        {/* Top Bar */}
+        <header
+          className="sticky top-0 z-30 flex h-16 items-center gap-3 px-4 sm:px-6"
+          style={{
+            background: 'var(--cv-glass-bg)',
+            backdropFilter: 'var(--cv-glass-blur)',
+            WebkitBackdropFilter: 'var(--cv-glass-blur)',
+            borderBottom: '1px solid var(--cv-border-light)',
+          }}
+        >
+          <button
+            onClick={() => setSidebarOpen(value => !value)}
+            className="cv-btn-ghost cv-btn-icon lg:hidden"
+            aria-label="Mở menu"
+          >
+            <Menu size={20} />
+          </button>
+          <div className="flex-1 text-sm font-semibold" style={{ color: 'var(--cv-text-secondary)' }}>
+            Hệ thống điểm danh khuôn mặt
+          </div>
+          <NavLink to={ROUTES.attendance} className="cv-btn cv-btn-primary cv-btn-sm hidden sm:inline-flex">
+            <ScanFace size={15} /> Bắt đầu điểm danh
+          </NavLink>
         </header>
-        <main className="p-4 sm:p-6"><Outlet /></main>
+
+        {/* Page Content */}
+        <main className="p-4 sm:p-6">
+          <div className="cv-page-enter">
+            <Outlet />
+          </div>
+        </main>
       </div>
     </div>
   )

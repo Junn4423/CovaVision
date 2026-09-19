@@ -1,30 +1,39 @@
 import { Link } from 'react-router-dom'
+import { ArrowLeft, FileQuestion } from 'lucide-react'
 import { ROUTES } from '../config/routes'
+import { Button, Card } from '../components/ui'
 
 export default function NotFound() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <div className="max-w-md w-full bg-white border border-slate-200 rounded-2xl p-7 text-center shadow-sm">
-        <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">404</p>
-        <h1 className="mt-2 text-2xl font-bold text-slate-800">Không tìm thấy trang</h1>
-        <p className="mt-2 text-sm text-slate-500">
-          Đường dẫn bạn truy cập không tồn tại trong phiên bản route mới.
+    <div className="min-h-[80vh] flex items-center justify-center p-4">
+      <Card className="max-w-md w-full p-8 text-center animate-in zoom-in-95 duration-200">
+        <div className="w-16 h-16 rounded-2xl bg-[var(--cv-brand-50)] dark:bg-[var(--cv-brand-950)]/50 border border-[var(--cv-brand-200)] dark:border-[var(--cv-brand-800)] flex items-center justify-center text-[var(--cv-brand-600)] dark:text-[var(--cv-brand-400)] mx-auto mb-4">
+          <FileQuestion className="w-8 h-8" />
+        </div>
+
+        <span className="text-xs font-bold font-mono tracking-widest text-[var(--cv-brand-600)] dark:text-[var(--cv-brand-400)] uppercase">
+          Lỗi 404
+        </span>
+        <h1 className="mt-2 text-2xl font-black text-[var(--cv-text-primary)] tracking-tight">
+          Không tìm thấy trang
+        </h1>
+        <p className="mt-2 text-sm text-[var(--cv-text-secondary)] leading-relaxed">
+          Đường dẫn bạn đang cố gắng truy cập không tồn tại hoặc đã được di chuyển trong hệ thống CovaVision.
         </p>
-        <div className="mt-5 flex justify-center gap-2">
-          <Link
-            to={ROUTES.portal}
-            className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium"
-          >
-            Về trang chọn cổng
+
+        <div className="mt-6 flex items-center justify-center gap-3">
+          <Link to={ROUTES.dashboard}>
+            <Button variant="primary" size="md" icon={ArrowLeft}>
+              Về bảng điều khiển
+            </Button>
           </Link>
-          <Link
-            to={ROUTES.login}
-            className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold"
-          >
-            Đăng nhập quản trị
+          <Link to={ROUTES.attendance}>
+            <Button variant="secondary" size="md">
+              Điểm danh
+            </Button>
           </Link>
         </div>
-      </div>
+      </Card>
     </div>
   )
 }

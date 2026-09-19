@@ -8,6 +8,8 @@ import {
   ChevronsRight,
   Eye,
   Image as ImageIcon,
+  LayoutGrid,
+  List,
   Loader2,
   RefreshCw,
   RotateCw,
@@ -23,6 +25,7 @@ import { useToast } from '../components/Toast'
 import SmartAvatar from '../components/SmartAvatar'
 import EmployeeRegistrationModal from '../components/EmployeeRegistrationModal'
 import { normalizeEmployeeImageUri } from '../utils/avatarUtils'
+import { ConfirmDialog } from '../components/ui'
 
 function getManageStatusBadge(employee) {
   const statusCode = (employee?.status_code || '').toLowerCase()
@@ -191,9 +194,11 @@ export default function ManageFaces() {
   const [selectedEmployeeForReg, setSelectedEmployeeForReg] = useState(null)
   const selectAllRef = useRef(null)
 
-  // Pagination
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const [viewMode, setViewMode] = useState('table')
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false)
 
   useEffect(() => {
     loadEmployees()
@@ -354,14 +359,19 @@ export default function ManageFaces() {
     }
   }
 
-  async function handleDelete(userId, name) {
-    if (!window.confirm(`Xác nhận xóa nhân viên "${name}" khỏi hệ thống?`)) return
+  function handleDelete(userId, name) {
+    setDeleteTarget({ id: userId, name })
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return
     try {
-      const res = await api.deleteEmployee(userId)
+      const res = await api.deleteEmployee(deleteTarget.id)
       if (res.success) {
         toast.success(res.message || 'Đã xóa nhân viên thành công')
-        if (viewer.employee?.id === userId) closeViewer()
-        setSelectedEmployeeIds(prev => prev.filter(id => id !== userId))
+        if (viewer.employee?.id === deleteTarget.id) closeViewer()
+        setSelectedEmployeeIds(prev => prev.filter(id => id !== deleteTarget.id))
+        setDeleteTarget(null)
         await loadEmployees()
       } else {
         toast.error(res.message || 'Xóa thất bại')
@@ -371,24 +381,12 @@ export default function ManageFaces() {
     }
   }
 
-  async function handleBulkDelete() {
+  function handleBulkDelete() {
     if (selectedEmployees.length === 0) return
+    setBulkDeleteDialogOpen(true)
+  }
 
-    const previewNames = selectedEmployees
-      .slice(0, 3)
-      .map(employee => employee.name)
-      .join(', ')
-    const remainingCount = selectedEmployees.length - 3
-    const previewLabel =
-      remainingCount > 0 ? `${previewNames} và ${remainingCount} nhân viên khác` : previewNames
-
-    if (
-      !window.confirm(
-        `Xác nhận xóa ${selectedEmployees.length} nhân viên (${previewLabel}) khỏi hệ thống?`
-      )
-    )
-      return
-
+  async function confirmBulkDelete() {
     setBulkDeleting(true)
     const failedIds = []
     let successCount = 0
@@ -415,6 +413,7 @@ export default function ManageFaces() {
     }
 
     setSelectedEmployeeIds(failedIds)
+    setBulkDeleteDialogOpen(false)
     await loadEmployees()
     setBulkDeleting(false)
   }
@@ -623,6 +622,34 @@ export default function ManageFaces() {
             </button>
           )}
         </div>
+
+        {/* View Mode Toggle */}
+        <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200 shrink-0">
+          <button
+            type="button"
+            onClick={() => setViewMode('table')}
+            className={`p-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              viewMode === 'table'
+                ? 'bg-white text-blue-600 shadow-xs'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+            title="Dạng bảng chi tiết"
+          >
+            <List size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('grid')}
+            className={`p-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              viewMode === 'grid'
+                ? 'bg-white text-blue-600 shadow-xs'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+            title="Dạng lưới thẻ"
+          >
+            <LayoutGrid size={16} />
+          </button>
+        </div>
       </div>
 
       {/* Bulk Delete Bar */}
@@ -668,8 +695,81 @@ export default function ManageFaces() {
           </div>
         ) : (
           <>
-            {/* Scrollable Table Area (Scroll nội bộ) */}
-            <div className="max-h-[calc(100vh-380px)] min-h-[340px] overflow-y-auto overflow-x-auto">
+            {viewMode === 'grid' ? (
+              <div className="p-4 sm:p-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 max-h-[calc(100vh-380px)] min-h-[340px] overflow-y-auto">
+                {paginatedEmployees.map(employee => {
+                  const badge = getManageStatusBadge(employee)
+                  const isSelected = selectedEmployeeIds.includes(employee.id)
+
+                  return (
+                    <div
+                      key={employee.id}
+                      className={`relative p-4 rounded-2xl border transition-all hover:shadow-md ${
+                        isSelected
+                          ? 'border-blue-500 bg-blue-50/40'
+                          : 'border-slate-200/80 bg-white hover:border-blue-200'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-3">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleEmployeeSelection(employee.id)}
+                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500/30 cursor-pointer mt-1"
+                        />
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold border ${badge.tone}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
+                          {badge.label}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col items-center text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleViewImage(employee)}
+                          className="relative group focus:outline-none mb-2 cursor-pointer"
+                        >
+                          <SmartAvatar employee={employee} size={64} showRing={true} />
+                          <span className="absolute inset-0 rounded-2xl bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                            <Eye size={18} />
+                          </span>
+                        </button>
+                        <h4 className="font-bold text-sm text-slate-800 truncate w-full">
+                          {employee.name}
+                        </h4>
+                        <p className="text-xs text-slate-500 font-mono mt-0.5">
+                          {employee.employee_id}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-1">
+                          {employee.department || 'Chưa có phòng ban'}
+                        </p>
+                      </div>
+
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleRegisterFace(employee)}
+                          className="flex-1 py-1.5 px-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Camera size={13} />
+                          <span>Chụp mặt</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(employee.id, employee.name)}
+                          className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                          title="Xóa nhân sự"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              /* Scrollable Table Area (Scroll nội bộ) */
+              <div className="max-h-[calc(100vh-380px)] min-h-[340px] overflow-y-auto overflow-x-auto">
               <table className="w-full text-left text-sm border-collapse min-w-[850px]">
                 {/* Sticky Header */}
                 <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-xs border-b border-slate-200/80 text-xs font-bold uppercase tracking-wider text-slate-500">
@@ -818,6 +918,7 @@ export default function ManageFaces() {
                 </tbody>
               </table>
             </div>
+            )}
 
             {/* Pagination Controls (Sticky at bottom of table card) */}
             <div className="p-3 sm:px-5 sm:py-3.5 border-t border-slate-100 bg-slate-50/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
@@ -919,6 +1020,28 @@ export default function ManageFaces() {
           </>
         )}
       </div>
+      {/* Confirm Single Delete Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        title="Xác nhận xóa nhân sự"
+        message={`Bạn có chắc muốn xóa nhân viên "${deleteTarget?.name}" khỏi hệ thống? Dữ liệu khuôn mặt và quyền điểm danh của nhân sự này sẽ bị hủy.`}
+        confirmText="Xóa nhân sự"
+        variant="danger"
+      />
+
+      {/* Confirm Bulk Delete Dialog */}
+      <ConfirmDialog
+        isOpen={bulkDeleteDialogOpen}
+        onClose={() => setBulkDeleteDialogOpen(false)}
+        onConfirm={confirmBulkDelete}
+        loading={bulkDeleting}
+        title={`Xác nhận xóa ${selectedEmployees.length} nhân sự`}
+        message={`Bạn có chắc chắn muốn xóa ${selectedEmployees.length} nhân viên đã chọn khỏi hệ thống? Hành động này không thể hoàn tác.`}
+        confirmText="Xóa tất cả đã chọn"
+        variant="danger"
+      />
     </div>
   )
 }

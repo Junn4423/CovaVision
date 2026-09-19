@@ -12,6 +12,7 @@ export default function Login() {
   const [checking, setChecking] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [shaking, setShaking] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -46,33 +47,149 @@ export default function Login() {
       navigate(ROUTES.dashboard, { replace: true })
     } catch (submitError) {
       setError(submitError?.message || 'Không thể kết nối CovaVision API.')
+      setShaking(true)
+      setTimeout(() => setShaking(false), 500)
     } finally {
       setLoading(false)
     }
   }
 
-  if (checking) return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-sm text-slate-300">Đang kiểm tra phiên...</div>
+  if (checking) {
+    return (
+      <div className="cv-login-portal flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="cv-spinner" style={{ width: 32, height: 32, borderTopColor: 'var(--cv-brand-400)' }} />
+          <span className="text-sm font-medium text-slate-400">Đang kiểm tra phiên...</span>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 py-8">
-      <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-white p-6 shadow-2xl sm:p-8">
+    <main className="cv-login-portal flex items-center justify-center px-4 py-8">
+      {/* Login Card */}
+      <div
+        className={`w-full max-w-md cv-scale-in ${shaking ? 'cv-shake' : ''}`}
+        style={{
+          background: 'var(--cv-glass-bg)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
+          border: '1px solid rgba(255, 255, 255, 0.12)',
+          borderRadius: 'var(--cv-radius-2xl)',
+          boxShadow: '0 25px 60px -12px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05)',
+          padding: '2rem',
+        }}
+      >
+        {/* Header */}
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 text-white"><ScanFace size={30} /></div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900">CovaVision</h1>
-          <p className="mt-2 text-sm text-slate-500">Đăng nhập hệ thống điểm danh khuôn mặt</p>
+          <div
+            className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl cv-slide-up"
+            style={{
+              background: 'linear-gradient(135deg, var(--cv-brand-500), var(--cv-brand-700))',
+              boxShadow: '0 8px 30px -5px rgba(37, 99, 235, 0.5)',
+            }}
+          >
+            <ScanFace size={32} className="text-white" />
+          </div>
+          <h1 className="text-2xl font-black tracking-tight" style={{ color: 'var(--cv-text-primary)' }}>
+            CovaVision
+          </h1>
+          <p className="mt-2 text-sm" style={{ color: 'var(--cv-text-tertiary)' }}>
+            Đăng nhập hệ thống điểm danh khuôn mặt
+          </p>
         </div>
-        <form onSubmit={submit} className="space-y-4">
-          {error && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">{error}</div>}
-          <label className="block text-sm font-semibold text-slate-700">Tài khoản
-            <span className="relative mt-1.5 block"><UserRound className="absolute left-3 top-3 text-slate-400" size={17} /><input value={username} onChange={event => setUsername(event.target.value)} className="w-full rounded-xl border border-slate-300 py-2.5 pl-10 pr-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" autoComplete="username" required /></span>
+
+        {/* Form */}
+        <form onSubmit={submit} className="space-y-5">
+          {error && (
+            <div
+              className="cv-slide-up rounded-xl px-4 py-3 text-sm font-medium"
+              style={{
+                background: 'rgba(239, 68, 68, 0.1)',
+                color: 'var(--cv-danger-400)',
+                border: '1px solid rgba(239, 68, 68, 0.2)',
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          {/* Username */}
+          <label className="block">
+            <span className="block text-sm font-semibold mb-1.5" style={{ color: 'var(--cv-text-secondary)' }}>Tài khoản</span>
+            <span className="relative block">
+              <UserRound className="absolute left-3 top-1/2 -translate-y-1/2" size={17} style={{ color: 'var(--cv-text-tertiary)' }} />
+              <input
+                value={username}
+                onChange={event => setUsername(event.target.value)}
+                className="cv-input"
+                style={{ paddingLeft: '2.5rem' }}
+                placeholder="Nhập tên tài khoản"
+                autoComplete="username"
+                required
+              />
+            </span>
           </label>
-          <label className="block text-sm font-semibold text-slate-700">Mật khẩu
-            <span className="relative mt-1.5 block"><LockKeyhole className="absolute left-3 top-3 text-slate-400" size={17} /><input type={showPassword ? 'text' : 'password'} value={password} onChange={event => setPassword(event.target.value)} className="w-full rounded-xl border border-slate-300 py-2.5 pl-10 pr-11 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" autoComplete="current-password" required /><button type="button" onClick={() => setShowPassword(value => !value)} className="absolute right-2 top-2 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100" aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span>
+
+          {/* Password */}
+          <label className="block">
+            <span className="block text-sm font-semibold mb-1.5" style={{ color: 'var(--cv-text-secondary)' }}>Mật khẩu</span>
+            <span className="relative block">
+              <LockKeyhole className="absolute left-3 top-1/2 -translate-y-1/2" size={17} style={{ color: 'var(--cv-text-tertiary)' }} />
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={event => setPassword(event.target.value)}
+                className="cv-input"
+                style={{ paddingLeft: '2.5rem', paddingRight: '2.75rem' }}
+                placeholder="Nhập mật khẩu"
+                autoComplete="current-password"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(value => !value)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 transition-colors"
+                style={{ color: 'var(--cv-text-tertiary)' }}
+                aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </span>
           </label>
-          <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} /> Ghi nhớ tài khoản trên máy này</label>
-          <button disabled={loading} className="flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 font-bold text-white transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60">{loading ? 'Đang đăng nhập...' : 'Đăng nhập'}</button>
+
+          {/* Remember */}
+          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={event => setRemember(event.target.checked)}
+              className="h-4 w-4 rounded accent-blue-600"
+            />
+            <span className="text-sm" style={{ color: 'var(--cv-text-secondary)' }}>Ghi nhớ tài khoản trên máy này</span>
+          </label>
+
+          {/* Submit */}
+          <button
+            disabled={loading}
+            className="cv-btn cv-btn-primary w-full"
+            style={{ padding: '0.75rem 1.5rem', fontSize: '0.9375rem' }}
+          >
+            {loading ? (
+              <>
+                <div className="cv-spinner" style={{ width: 18, height: 18, borderTopColor: 'white' }} />
+                Đang đăng nhập...
+              </>
+            ) : (
+              'Đăng nhập'
+            )}
+          </button>
         </form>
-        <p className="mt-6 text-center text-xs text-slate-400">Camera và dữ liệu chỉ đi qua CovaVision API đã cấu hình.</p>
+
+        {/* Footer */}
+        <p className="mt-6 text-center text-xs" style={{ color: 'var(--cv-text-tertiary)', opacity: 0.7 }}>
+          Camera và dữ liệu chỉ đi qua CovaVision API đã cấu hình.
+        </p>
       </div>
     </main>
   )
