@@ -129,6 +129,29 @@ def test_employee_creation_is_blocked_at_trial_quota() -> None:
     assert "3 nhân viên" in response.json()["detail"]
 
 
+def test_expired_subscription_cannot_create_new_employee() -> None:
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+
+    repository = InMemoryRepository()
+    repository.seed_user("expired@example.com", "strong-password", role="ADMIN")
+    asyncio.run(repository.create_trial_subscription(repository.organization_id))
+    repository.subscriptions[0]["ends_at"] = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    client = TestClient(create_app(repository=repository))
+    token = client.post(
+        "/api/v1/auth/login",
+        json={"identifier": "expired@example.com", "password": "strong-password"},
+    ).json()["access_token"]
+
+    response = client.post(
+        "/api/v1/employees",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"employee_id": "EMP-EXPIRED", "name": "Expired User"},
+    )
+    assert response.status_code == 402
+    assert "hết hạn" in response.json()["detail"]
+
+
 def test_google_login_rejects_unconfigured_provider(monkeypatch) -> None:
     from app.api.routes import auth
 

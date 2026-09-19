@@ -35,7 +35,10 @@ def _check_login_rate_limit(client_ip: str) -> None:
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"Quá nhiều lần thử đăng nhập. Vui lòng đợi {window // 60} phút.",
         )
-    _login_attempts[client_ip].append(now)
+
+
+def _record_login_failure(client_ip: str) -> None:
+    _login_attempts[client_ip].append(time.monotonic())
 
 
 class LoginRequest(BaseModel):
@@ -94,7 +97,9 @@ async def login(
         raise HTTPException(status_code=422, detail="identifier hoặc username là bắt buộc")
     user = await repository.authenticate(identifier, payload.password)
     if user is None:
+        _record_login_failure(client_ip)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email/tài khoản hoặc mật khẩu không đúng")
+    _login_attempts.pop(client_ip, None)
     return _issue_session(user)
 
 

@@ -83,6 +83,8 @@ def public_camera(camera: dict[str, Any]) -> dict[str, Any]:
     # client receives only an opaque id and operational metadata; the backend is
     # the sole component that opens RTSP and stores credentials.
     result = _safe_camera_value(camera)
+    if not isinstance(result, dict):
+        result = {"id": camera.get("id"), "name": camera.get("name") or "Camera"}
     result = {
         key: value
         for key, value in result.items()
@@ -117,7 +119,7 @@ async def list_cameras(
 async def discover_cameras(
     payload: dict[str, Any],
     request: Request,
-    _: dict[str, Any] = Depends(get_current_user),
+    _: dict[str, Any] = Depends(require_admin),
 ) -> dict[str, Any]:
     timeout_ms = max(1500, min(int(payload.get("timeout_ms") or 3500), 10000))
     enable_subnet_fallback = bool(payload.get("enable_subnet_fallback"))

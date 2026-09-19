@@ -8,6 +8,9 @@ from typing import Any
 def quota_error(summary: dict[str, Any], *, adding_employee: bool = False, adding_face: bool = False) -> str | None:
     plan = summary.get("plan") or {}
     usage = summary.get("usage") or {}
+    subscription = summary.get("subscription") or {}
+    if subscription.get("status") not in {None, "TRIALING", "ACTIVE"}:
+        return f"Gói {plan.get('name', 'hiện tại')} đã hết hạn. Vui lòng gia hạn để tiếp tục sử dụng"
     max_employees = plan.get("max_employees")
     max_faces = plan.get("max_face_templates")
     if adding_employee and max_employees is not None and int(usage.get("employees") or 0) >= int(max_employees):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -102,10 +102,16 @@ class PrismaBillingMixin:
     async def create_trial_subscription(self, organization_id: str) -> dict[str, Any]:
         await self._ensure_connected()
         existing = await self.client.organizationsubscription.find_first(
-            where={"organizationId": organization_id, "status": {"in": ["TRIALING", "ACTIVE"]}},
+            where={"organizationId": organization_id},
             order={"createdAt": "desc"},
         )
         if existing:
+            ends_at = existing.endsAt
+            if str(existing.status) in {"TRIALING", "ACTIVE"} and ends_at and ends_at <= datetime.now(timezone.utc):
+                existing = await self.client.organizationsubscription.update(
+                    where={"id": existing.id},
+                    data={"status": "EXPIRED"},
+                )
             return self._subscription_to_dict(existing)
         plan = get_plan("trial")
         await self._ensure_prisma_plan(plan.code)
@@ -125,13 +131,18 @@ class PrismaBillingMixin:
     async def get_billing_summary(self, organization_id: str) -> dict[str, Any]:
         await self._ensure_connected()
         subscription = await self.client.organizationsubscription.find_first(
-            where={"organizationId": organization_id, "status": {"in": ["TRIALING", "ACTIVE"]}},
+            where={"organizationId": organization_id},
             order={"createdAt": "desc"},
         )
         if subscription is None:
             subscription = await self.create_trial_subscription(organization_id)
             plan = get_plan(subscription["plan_code"])
         else:
+            if str(subscription.status) in {"TRIALING", "ACTIVE"} and subscription.endsAt and subscription.endsAt <= datetime.now(timezone.utc):
+                subscription = await self.client.organizationsubscription.update(
+                    where={"id": subscription.id},
+                    data={"status": "EXPIRED"},
+                )
             plan = get_plan(subscription.planCode)
             subscription = self._subscription_to_dict(subscription)
         employees = await self.client.employee.find_many(where={"organizationId": organization_id, "status": "ACTIVE"})

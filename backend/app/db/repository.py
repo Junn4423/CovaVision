@@ -94,6 +94,18 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _subscription_expired(value: Any) -> bool:
+    if not value:
+        return False
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00")) if isinstance(value, str) else value
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed <= _now()
+    except (TypeError, ValueError):
+        return False
+
+
 class InMemoryRepository:
     """Small repository used by contract tests and explicit demo mode."""
 
@@ -189,8 +201,10 @@ class InMemoryRepository:
         return {key: value for key, value in user.items() if key != "password_hash"}
 
     async def create_trial_subscription(self, organization_id: str) -> dict[str, Any]:
-        existing = next((item for item in self.subscriptions if item["organization_id"] == organization_id and item["status"] in {"TRIALING", "ACTIVE"}), None)
+        existing = next((item for item in reversed(self.subscriptions) if item["organization_id"] == organization_id), None)
         if existing:
+            if existing["status"] in {"TRIALING", "ACTIVE"} and _subscription_expired(existing.get("ends_at")):
+                existing["status"] = "EXPIRED"
             return existing
         plan = get_plan("trial")
         now = _now()
@@ -207,9 +221,11 @@ class InMemoryRepository:
 
     async def get_billing_summary(self, organization_id: str) -> dict[str, Any]:
         subscription = next(
-            (item for item in reversed(self.subscriptions) if item["organization_id"] == organization_id and item["status"] in {"TRIALING", "ACTIVE"}),
+            (item for item in reversed(self.subscriptions) if item["organization_id"] == organization_id),
             None,
         ) or await self.create_trial_subscription(organization_id)
+        if subscription["status"] in {"TRIALING", "ACTIVE"} and _subscription_expired(subscription.get("ends_at")):
+            subscription["status"] = "EXPIRED"
         plan = get_plan(subscription["plan_code"])
         employee_count = sum(1 for item in self.employees.values() if item.get("status", "ACTIVE") == "ACTIVE")
         face_count = sum(1 for item in self.employees.values() if item.get("has_face") or item.get("embedding") is not None)

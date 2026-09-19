@@ -260,6 +260,24 @@ def test_camera_discovery_returns_opaque_candidate_and_resolves_on_backend() -> 
     assert stored["connection_url"].endswith("subtype=1")
 
 
+def test_camera_discovery_is_admin_only() -> None:
+    local_repository = InMemoryRepository()
+    local_repository.seed_user("staff.discovery", "test-password", role="STAFF")
+    local_app = create_app(repository=local_repository)
+    local_client = TestClient(local_app)
+    token = local_client.post(
+        "/api/v1/auth/login",
+        json={"username": "staff.discovery", "password": "test-password"},
+    ).json()["access_token"]
+
+    response = local_client.post(
+        "/api/v1/cameras/discover",
+        headers={"Authorization": f"Bearer {token}"},
+        json={},
+    )
+    assert response.status_code == 403
+
+
 def test_employee_image_is_read_back_through_backend() -> None:
     import asyncio
 
