@@ -375,6 +375,27 @@ function cleanLocationDisplayText(value) {
   return (head || raw).replace(LOCATION_COORDINATE_SUFFIX_PATTERN, '').trim()
 }
 
+function getPreviewBoundingBoxStyle(preview) {
+  const bbox = Array.isArray(preview?.bbox) ? preview.bbox.map(value => Number(value)) : []
+  const frameWidth = Number(preview?.frameWidth)
+  const frameHeight = Number(preview?.frameHeight)
+  if (bbox.length < 4 || !bbox.every(Number.isFinite) || frameWidth <= 0 || frameHeight <= 0) return null
+
+  const [rawX1, rawY1, rawX2, rawY2] = bbox
+  const x1 = Math.max(0, Math.min(frameWidth, rawX1))
+  const y1 = Math.max(0, Math.min(frameHeight, rawY1))
+  const x2 = Math.max(x1, Math.min(frameWidth, rawX2))
+  const y2 = Math.max(y1, Math.min(frameHeight, rawY2))
+  if (x2 <= x1 || y2 <= y1) return null
+
+  return {
+    left: `${(x1 / frameWidth) * 100}%`,
+    top: `${(y1 / frameHeight) * 100}%`,
+    width: `${((x2 - x1) / frameWidth) * 100}%`,
+    height: `${((y2 - y1) / frameHeight) * 100}%`,
+  }
+}
+
 function computeContainedVideoRect(containerWidth, containerHeight, frameWidth, frameHeight) {
   if (!containerWidth || !containerHeight || !frameWidth || !frameHeight) return null
 
@@ -1170,7 +1191,10 @@ export default function Attendance() {
   async function loadTodayRecords() {
     try {
       const res = await api.getTodayAttendance()
-      if (res.success) setTodayRecords(res.data || [])
+      if (res.success) {
+        const records = res.records || res.attendance || res.data?.records || res.data || []
+        setTodayRecords(Array.isArray(records) ? records : [])
+      }
     } catch (error) {
       console.error(error)
     }
@@ -1415,6 +1439,7 @@ export default function Attendance() {
       const payload = {
         image_base64: captureImageBase64,
         include_preview: true,
+        camera_id: activeCameraId || selectedCameraId || undefined,
       }
 
       const res = await api.attendanceImageBase64(payload)
@@ -1423,6 +1448,10 @@ export default function Attendance() {
           imageBase64: res.preview_image_base64,
           bbox: Array.isArray(res.detection_bbox) ? res.detection_bbox : null,
           faceCount: Number.isFinite(Number(res.face_count)) ? Number(res.face_count) : null,
+          frameWidth: Number(res.frame_width) || 0,
+          frameHeight: Number(res.frame_height) || 0,
+          matched: Boolean(res.matched),
+          name: String(res?.user?.name || res?.detected_user?.name || '').trim(),
         }
         : null
       if (capturePreview) {
@@ -1981,11 +2010,25 @@ export default function Attendance() {
           {lastCapturePreview?.imageBase64 && (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
               <p className="text-sm font-medium text-slate-700">Ảnh nhận diện lần quét gần nhất (có bounding box)</p>
-              <img
-                src={lastCapturePreview.imageBase64}
-                alt="Detection preview"
-                className="w-full max-h-56 object-contain rounded-lg border border-slate-200 bg-black"
-              />
+              <div className="relative mx-auto w-fit max-w-full overflow-hidden rounded-lg border border-slate-200 bg-black">
+                <img
+                  src={lastCapturePreview.imageBase64}
+                  alt="Detection preview"
+                  className="block max-h-56 max-w-full object-contain"
+                />
+                {getPreviewBoundingBoxStyle(lastCapturePreview) && (
+                  <div className="pointer-events-none absolute inset-0">
+                    <div
+                      className={`absolute rounded-md border-2 ${lastCapturePreview.matched ? 'border-emerald-400 bg-emerald-400/10' : 'border-cyan-400 bg-cyan-400/10'}`}
+                      style={getPreviewBoundingBoxStyle(lastCapturePreview)}
+                    >
+                      <span className={`absolute -top-6 left-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-bold text-white ${lastCapturePreview.matched ? 'bg-emerald-500' : 'bg-cyan-600'}`}>
+                        {lastCapturePreview.name || 'Khuôn mặt'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
               <div className="text-xs text-slate-500 flex items-center justify-between gap-2">
                 <span>Bounding box hiển thị trên ảnh vừa gửi nhận diện gần nhất.</span>
                 {Number.isFinite(lastCapturePreview.faceCount) && (
@@ -2014,7 +2057,7 @@ export default function Attendance() {
               todayRecords.map((record, index) => (
                 <div key={`${record.id || record.employee_id}-${record.captured_at || record.time || index}`} className="px-5 py-4 flex items-start justify-between gap-4">
                   <div>
-                    <p className="font-semibold text-slate-800">{record.name}</p>
+                    <p className="font-semibold text-slate-800">{record.employee_name || record.name || record.employee_id || 'Không xác định'}</p>
                     <p className="text-sm text-slate-500 mt-1">
                       {record.employee_id} · {record.department || 'Chưa có phòng ban'}
                     </p>
