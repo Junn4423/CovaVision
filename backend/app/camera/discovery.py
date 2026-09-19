@@ -11,13 +11,12 @@ import ipaddress
 import re
 import socket
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote, unquote, urlsplit
 from uuid import uuid4
-
 
 ONVIF_PORT = 3702
 ONVIF_MULTICAST_HOST = "239.255.255.250"
