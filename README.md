@@ -42,7 +42,7 @@ graph TD
 
 ---
 
-## ✨ Tính Năng Nổi Bật (Phiên Bản v3.1)
+## ✨ Tính Năng Nổi Bật (Big Update v4)
 
 ### 1. Trải nghiệm Giao diện Cao cấp (Design System v2.0)
 - **Dark / Light Mode**: Chuyển đổi giao diện sáng/tối mượt mà, tự động đồng bộ theo tùy chọn hệ điều hành.
@@ -50,6 +50,10 @@ graph TD
 - **Quản lý Nhân sự Pro**: Hỗ trợ chuyển đổi giữa **Dạng bảng chi tiết (Table)** và **Dạng lưới thẻ (Grid Cards)**, xem ảnh khuôn mặt đã đăng ký.
 - **Báo cáo chuyên sâu**: Lọc nhanh theo ngày (Hôm nay, 7 ngày, 30 ngày, Tháng này, Tùy chọn), phân trang và xuất file CSV định dạng `utf-8-sig` (hiển thị tiếng Việt chuẩn trên Excel).
 - **Hộp thoại xác nhận (ConfirmDialog)**: Loại bỏ hộp thoại trình duyệt `window.confirm`, bảo vệ người dùng trước các thao tác nhầm lẫn.
+- **Onboarding SaaS**: Đăng ký workspace bằng email, đăng nhập username/email và Google Identity Services (khi đã cấu hình client ID).
+- **Gói nhân sự**: Dùng thử 14 ngày (3 nhân viên/3 khuôn mặt), Standard (10, 550.000đ/tháng), Pro (50, 1.950.000đ/tháng), VIP (150, 4.990.000đ/tháng), Business liên hệ.
+- **Thanh toán SePay**: Tạo order server-side, QR VietQR, webhook có API key, kiểm tra số tiền/nội dung/hạn đơn và idempotency; credential ngân hàng không đi xuống client.
+- **Theme CovaSol**: Hệ màu variable được chuẩn hóa theo [CovaSol](https://covasol.com.vn/) với xanh navy/xanh teal/xanh lá, Be Vietnam Pro và Nunito.
 
 ### 2. Bảo mật & Hiệu năng Cao
 - **Chống brute-force**: Tích hợp Rate Limiting trên endpoint đăng nhập (`/api/v1/auth/login`).
@@ -95,11 +99,11 @@ Dừng hệ thống:
 ## 🧪 Kiểm Thử Tự Động (Test Suites)
 
 ### 1. Backend Unit & Security Tests (Python pytest)
-Hệ thống có 29 kịch bản kiểm thử toàn diện cho API contracts, bảo mật, nhận diện khuôn mặt và camera discovery:
+Hệ thống có 39 kịch bản kiểm thử API contracts, billing, bảo mật, nhận diện khuôn mặt và camera discovery:
 
 ```bash
 .venv/bin/python -m pytest tests/ -v
-# Kết quả: 29 passed, 1 warning (startup JWT warning)
+# Kết quả: 39 passed, 1 warning nếu dùng JWT_SECRET mặc định ở local
 ```
 
 ### 2. Desktop Frontend Build Test (Vite)
@@ -113,7 +117,7 @@ npm run build:react
 ```bash
 cd apps/mobile
 npm test
-# Kết quả: 5 test suites passed, 8 tests passed
+# Kết quả: 5 test suites passed, 9 tests passed
 ```
 
 ---
@@ -125,6 +129,31 @@ npm test
 3. Backend sẽ gửi gói tin ONVIF WS-Discovery dò tìm tất cả camera an ninh IP trong mạng nội bộ.
 4. Nếu camera không hỗ trợ ONVIF, đánh dấu vào tùy chọn **Quét bổ sung toàn bộ subnet /24**.
 5. Nhập tên hiển thị, tài khoản và mật khẩu camera để lưu vào hệ thống an toàn.
+
+## 💳 Cấu hình Google và SePay
+
+Đăng nhập Google cần dùng cùng một OAuth Web Client ID ở hai nơi:
+
+```bash
+# .env
+GOOGLE_CLIENT_ID=...apps.googleusercontent.com
+
+# apps/desktop/.env.local
+VITE_GOOGLE_CLIENT_ID=...apps.googleusercontent.com
+```
+
+Thanh toán cần đặt thông tin nhận tiền ở backend; không đưa API key vào desktop/mobile:
+
+```bash
+SEPAY_BANK_ACCOUNT=0123456789
+SEPAY_BANK_CODE=VCB
+SEPAY_WEBHOOK_API_KEY=secret-from-sepay
+SEPAY_ORDER_PREFIX=CV
+```
+
+Webhook production phải là HTTPS public URL trỏ tới `/api/v1/billing/webhooks/sepay`. Backend chỉ kích hoạt khi đúng order, đúng số tiền, chưa hết hạn và chưa xử lý trước đó. Xem thêm [tài liệu webhook SePay](https://developer.sepay.vn/vi/sepay-webhooks/tich-hop-webhook).
+
+Business logic điểm danh chỉ ghi nhận khi có ảnh nhận diện khuôn mặt. Endpoint `POST /api/v1/attendance` dạng thủ công bị từ chối để không thể giả mạo record bằng `employee_id` từ client.
 
 ---
 
