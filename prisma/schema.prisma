@@ -40,6 +40,22 @@ enum AttendanceStatus {
   PENDING
 }
 
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  EXPIRED
+  CANCELED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  EXPIRED
+  FAILED
+  REFUNDED
+}
+
 model Organization {
   id           String       @id @default(uuid()) @db.Char(36)
   code         String       @unique @db.VarChar(50)
@@ -57,6 +73,8 @@ model Organization {
   userAccounts UserAccount[]
   settings     SystemSetting[]
   auditLogs    AuditLog[]
+  subscriptions OrganizationSubscription[]
+  paymentTransactions PaymentTransaction[]
 
   @@map("organizations")
 }
@@ -150,6 +168,9 @@ model UserAccount {
   organizationId String       @db.Char(36)
   employeeId     String?      @unique @db.Char(36)
   username       String       @unique @db.VarChar(100)
+  email          String?      @unique @db.VarChar(255)
+  emailVerifiedAt DateTime?
+  googleSubject  String?      @unique @db.VarChar(255)
   passwordHash   String       @db.VarChar(255)
   role           UserRole     @default(STAFF)
   isActive       Boolean      @default(true)
@@ -163,6 +184,69 @@ model UserAccount {
 
   @@index([organizationId, isActive])
   @@map("user_accounts")
+}
+
+model SubscriptionPlan {
+  id                  String   @id @default(uuid()) @db.Char(36)
+  code                String   @unique @db.VarChar(40)
+  name                String   @db.VarChar(100)
+  maxEmployees       Int?
+  maxFaceTemplates   Int?
+  monthlyPriceVnd    Int      @default(0)
+  durationDays       Int?
+  contactOnly        Boolean  @default(false)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  subscriptions      OrganizationSubscription[]
+
+  @@map("subscription_plans")
+}
+
+model OrganizationSubscription {
+  id                   String             @id @default(uuid()) @db.Char(36)
+  organizationId       String             @db.Char(36)
+  planCode             String             @db.VarChar(40)
+  status               SubscriptionStatus @default(TRIALING)
+  startsAt             DateTime
+  endsAt               DateTime?
+  provider             String?            @db.VarChar(40)
+  providerReference    String?            @db.VarChar(255)
+  autoRenew            Boolean            @default(false)
+  metadata             Json?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  organization         Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan                 SubscriptionPlan   @relation(fields: [planCode], references: [code], onDelete: Restrict)
+
+  @@index([organizationId, status, endsAt])
+  @@index([provider, providerReference])
+  @@map("organization_subscriptions")
+}
+
+model PaymentTransaction {
+  id                    String        @id @default(uuid()) @db.Char(36)
+  organizationId        String        @db.Char(36)
+  orderCode             String        @unique @db.VarChar(80)
+  planCode              String        @db.VarChar(40)
+  amountVnd             Int
+  status                PaymentStatus @default(PENDING)
+  provider              String        @default("sepay") @db.VarChar(40)
+  providerTransactionId String?       @unique @db.VarChar(255)
+  transferContent       String?       @db.VarChar(500)
+  accountNumber         String?       @db.VarChar(100)
+  paymentUrl            String?       @db.Text
+  qrCodeUrl             String?       @db.Text
+  expiresAt             DateTime?
+  paidAt                DateTime?
+  metadata              Json?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  organization          Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status, createdAt])
+  @@index([planCode, status])
+  @@map("payment_transactions")
 }
 
 model RefreshToken {

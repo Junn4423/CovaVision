@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import re
 import time
 from collections import defaultdict
 from typing import Any
@@ -36,8 +39,46 @@ def _check_login_rate_limit(client_ip: str) -> None:
 
 
 class LoginRequest(BaseModel):
-    username: str = Field(min_length=1, max_length=100)
+    username: str | None = Field(default=None, min_length=1, max_length=255)
+    identifier: str | None = Field(default=None, min_length=1, max_length=255)
     password: str = Field(min_length=1, max_length=255)
+
+
+class RegisterRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=255)
+    password: str = Field(min_length=6, max_length=255)
+    full_name: str = Field(default="", max_length=255)
+    organization_name: str = Field(default="", max_length=255)
+
+
+class GoogleLoginRequest(BaseModel):
+    id_token: str = Field(min_length=20, max_length=8192)
+
+
+_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
+
+def _normalize_email(value: str) -> str:
+    email = value.strip().lower()
+    if not _EMAIL_RE.fullmatch(email):
+        raise HTTPException(status_code=422, detail="Email không hợp lệ")
+    return email
+
+
+def _issue_session(user: dict[str, Any]) -> dict[str, Any]:
+    token = create_access_token(
+        str(user["username"]),
+        role=str(user.get("role", "STAFF")),
+        organization_id=str(user.get("organization_id") or ""),
+    )
+    public_user = {key: value for key, value in user.items() if key not in {"password_hash", "passwordHash"}}
+    return {
+        "success": True,
+        "access_token": token,
+        "token": token,
+        "token_type": "bearer",
+        "user": public_user,
+    }
 
 
 @router.post("/login")
@@ -48,18 +89,71 @@ async def login(
 ) -> dict[str, Any]:
     client_ip = request.client.host if request.client else "unknown"
     _check_login_rate_limit(client_ip)
-    user = await repository.authenticate(payload.username.strip(), payload.password)
+    identifier = (payload.identifier or payload.username or "").strip()
+    if not identifier:
+        raise HTTPException(status_code=422, detail="identifier hoặc username là bắt buộc")
+    user = await repository.authenticate(identifier, payload.password)
     if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
-    token = create_access_token(user["username"], role=str(user.get("role", "STAFF")))
-    public_user = {key: value for key, value in user.items() if key not in {"password_hash", "passwordHash"}}
-    return {
-        "success": True,
-        "access_token": token,
-        "token": token,
-        "token_type": "bearer",
-        "user": public_user,
-    }
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email/tài khoản hoặc mật khẩu không đúng")
+    return _issue_session(user)
+
+
+@router.post("/register")
+async def register(
+    payload: RegisterRequest,
+    repository: Repository = Depends(get_repository),
+) -> dict[str, Any]:
+    email = _normalize_email(payload.email)
+    try:
+        user = await repository.register_account(
+            email,
+            payload.password,
+            payload.full_name.strip(),
+            payload.organization_name.strip(),
+        )
+    except ValueError as exc:
+        if str(exc) == "email_already_registered":
+            raise HTTPException(status_code=409, detail="Email đã được đăng ký") from exc
+        raise HTTPException(status_code=422, detail="Không thể tạo tài khoản") from exc
+    return _issue_session(user)
+
+
+def _verify_google_id_token(id_token: str) -> dict[str, Any]:
+    if not settings.google_client_id:
+        raise HTTPException(status_code=503, detail="Google OAuth chưa được cấu hình ở backend")
+    try:
+        from google.auth.transport import requests as google_requests
+        from google.oauth2 import id_token as google_id_token
+
+        claims = google_id_token.verify_oauth2_token(
+            id_token,
+            google_requests.Request(),
+            settings.google_client_id,
+        )
+    except ImportError as exc:
+        raise HTTPException(status_code=503, detail="Backend thiếu gói google-auth") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="Google token không hợp lệ hoặc đã hết hạn") from exc
+    email = str(claims.get("email") or "").strip().lower()
+    if not email or claims.get("email_verified") is not True or not claims.get("sub"):
+        raise HTTPException(status_code=401, detail="Tài khoản Google chưa xác thực email")
+    hosted_domain = settings.google_allowed_hosted_domain.strip().lower()
+    if hosted_domain and str(claims.get("hd") or "").lower() != hosted_domain:
+        raise HTTPException(status_code=403, detail="Email Google không thuộc domain được cho phép")
+    return {"email": email, "subject": str(claims["sub"]), "name": str(claims.get("name") or email.split("@", 1)[0])}
+
+
+@router.post("/google")
+async def google_login(
+    payload: GoogleLoginRequest,
+    repository: Repository = Depends(get_repository),
+) -> dict[str, Any]:
+    claims = _verify_google_id_token(payload.id_token)
+    try:
+        user = await repository.authenticate_google(claims["email"], claims["subject"], claims["name"])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Không thể tạo phiên Google") from exc
+    return _issue_session(user)
 
 
 @router.post("/logout")
@@ -76,7 +170,9 @@ async def me(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[s
         "success": True,
         "authenticated": True,
         "is_admin": current_user.get("role") in {"ADMIN", "HR_MANAGER"},
-        "user": {"username": current_user.get("sub"), "role": current_user.get("role")},
+        "user": {
+            "username": current_user.get("sub"),
+            "role": current_user.get("role"),
+            "organization_id": current_user.get("organization_id"),
+        },
     }
-
-

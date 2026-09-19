@@ -39,6 +39,16 @@ class Settings(BaseSettings):
     login_rate_limit_window_seconds: int = 300
     # SEC-08: Maximum allowed image upload size in bytes (default 10 MB).
     max_image_upload_bytes: int = 10 * 1024 * 1024
+    # SaaS onboarding and billing. Secrets stay server-side; clients only see
+    # the public QR URL and order status.
+    trial_duration_days: int = 14
+    sepay_bank_account: str = ""
+    sepay_bank_code: str = ""
+    sepay_webhook_api_key: str = ""
+    sepay_order_prefix: str = "CV"
+    payment_order_ttl_minutes: int = 15
+    google_client_id: str = ""
+    google_allowed_hosted_domain: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

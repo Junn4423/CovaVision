@@ -12,17 +12,44 @@ import os
 import struct
 import re
 import unicodedata
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
 
+from app.billing.plans import get_plan
 from app.core.security import hash_password, verify_password
+from app.db.billing_repository import PrismaBillingMixin
 
 
 class Repository(Protocol):
-    async def authenticate(self, username: str, password: str) -> dict[str, Any] | None: ...
+    async def authenticate(self, identifier: str, password: str) -> dict[str, Any] | None: ...
+
+    async def register_account(
+        self, email: str, password: str, full_name: str, organization_name: str
+    ) -> dict[str, Any]: ...
+
+    async def authenticate_google(self, email: str, google_subject: str, full_name: str) -> dict[str, Any]: ...
+
+    async def create_trial_subscription(self, organization_id: str) -> dict[str, Any]: ...
+
+    async def get_billing_summary(self, organization_id: str) -> dict[str, Any]: ...
+
+    async def create_payment(self, organization_id: str, plan_code: str, order_code: str, expires_at: datetime) -> dict[str, Any]: ...
+
+    async def get_payment(self, organization_id: str, order_code: str) -> dict[str, Any] | None: ...
+
+    async def get_payment_by_order(self, order_code: str) -> dict[str, Any] | None: ...
+
+    async def complete_payment(
+        self,
+        order_code: str,
+        provider_transaction_id: str,
+        amount_vnd: int,
+        transfer_content: str,
+        paid_at: datetime,
+    ) -> dict[str, Any]: ...
 
     async def get_employee(self, employee_id: str) -> dict[str, Any] | None: ...
 
@@ -78,6 +105,13 @@ class InMemoryRepository:
         self.attendance: list[dict[str, Any]] = []
         self.settings: dict[str, Any] = {}
         self.organization_id = organization_id
+        self.organization = {
+            "id": organization_id,
+            "code": "DEFAULT",
+            "name": "CovaVision",
+        }
+        self.subscriptions: list[dict[str, Any]] = []
+        self.payments: dict[str, dict[str, Any]] = {}
 
     def seed_user(self, username: str, password: str, *, role: str = "STAFF") -> None:
         user_id = str(uuid4())
@@ -90,11 +124,151 @@ class InMemoryRepository:
             "is_active": True,
         }
 
-    async def authenticate(self, username: str, password: str) -> dict[str, Any] | None:
-        user = self.users.get(username)
+    async def authenticate(self, identifier: str, password: str) -> dict[str, Any] | None:
+        normalized = identifier.strip().lower()
+        user = next(
+            (
+                item
+                for item in self.users.values()
+                if str(item.get("username", "")).lower() == normalized
+                or str(item.get("email", "")).lower() == normalized
+            ),
+            None,
+        )
         if not user or not user["is_active"] or not verify_password(password, user["password_hash"]):
             return None
         return {key: value for key, value in user.items() if key != "password_hash"}
+
+    async def register_account(self, email: str, password: str, full_name: str, organization_name: str) -> dict[str, Any]:
+        normalized = email.strip().lower()
+        if any(str(item.get("email", "")).lower() == normalized for item in self.users.values()):
+            raise ValueError("email_already_registered")
+        username = normalized
+        account = {
+            "id": str(uuid4()),
+            "username": username,
+            "email": normalized,
+            "full_name": full_name.strip() or normalized.split("@", 1)[0],
+            "password_hash": hash_password(password),
+            "role": "ADMIN",
+            "organization_id": self.organization_id,
+            "is_active": True,
+            "email_verified": False,
+        }
+        self.organization["name"] = organization_name.strip() or self.organization["name"]
+        self.users[username] = account
+        await self.create_trial_subscription(self.organization_id)
+        return {key: value for key, value in account.items() if key != "password_hash"}
+
+    async def authenticate_google(self, email: str, google_subject: str, full_name: str) -> dict[str, Any]:
+        normalized = email.strip().lower()
+        user = next(
+            (
+                item
+                for item in self.users.values()
+                if item.get("google_subject") == google_subject or str(item.get("email", "")).lower() == normalized
+            ),
+            None,
+        )
+        if user is None:
+            user = {
+                "id": str(uuid4()),
+                "username": normalized,
+                "email": normalized,
+                "full_name": full_name.strip() or normalized.split("@", 1)[0],
+                "password_hash": hash_password(str(uuid4())),
+                "role": "ADMIN",
+                "organization_id": self.organization_id,
+                "is_active": True,
+                "email_verified": True,
+            }
+            self.users[normalized] = user
+        user["google_subject"] = google_subject
+        user["email_verified"] = True
+        await self.create_trial_subscription(self.organization_id)
+        return {key: value for key, value in user.items() if key != "password_hash"}
+
+    async def create_trial_subscription(self, organization_id: str) -> dict[str, Any]:
+        existing = next((item for item in self.subscriptions if item["organization_id"] == organization_id and item["status"] in {"TRIALING", "ACTIVE"}), None)
+        if existing:
+            return existing
+        plan = get_plan("trial")
+        now = _now()
+        subscription = {
+            "id": str(uuid4()),
+            "organization_id": organization_id,
+            "plan_code": plan.code,
+            "status": "TRIALING",
+            "starts_at": now.isoformat(),
+            "ends_at": (now + timedelta(days=plan.duration_days or 14)).isoformat(),
+        }
+        self.subscriptions.append(subscription)
+        return subscription
+
+    async def get_billing_summary(self, organization_id: str) -> dict[str, Any]:
+        subscription = next(
+            (item for item in reversed(self.subscriptions) if item["organization_id"] == organization_id and item["status"] in {"TRIALING", "ACTIVE"}),
+            None,
+        ) or await self.create_trial_subscription(organization_id)
+        plan = get_plan(subscription["plan_code"])
+        employee_count = sum(1 for item in self.employees.values() if item.get("status", "ACTIVE") == "ACTIVE")
+        face_count = sum(1 for item in self.employees.values() if item.get("has_face") or item.get("embedding") is not None)
+        return {"subscription": subscription, "plan": plan.public_dict(), "usage": {"employees": employee_count, "face_templates": face_count}}
+
+    async def create_payment(self, organization_id: str, plan_code: str, order_code: str, expires_at: datetime) -> dict[str, Any]:
+        plan = get_plan(plan_code)
+        if plan.contact_only:
+            raise ValueError("contact_required")
+        payment = {
+            "id": str(uuid4()),
+            "organization_id": organization_id,
+            "order_code": order_code,
+            "plan_code": plan.code,
+            "amount_vnd": plan.monthly_price_vnd,
+            "status": "PENDING",
+            "provider": "sepay",
+            "expires_at": expires_at.isoformat(),
+            "created_at": _now().isoformat(),
+        }
+        self.payments[order_code] = payment
+        return payment
+
+    async def get_payment(self, organization_id: str, order_code: str) -> dict[str, Any] | None:
+        payment = self.payments.get(order_code)
+        return payment if payment and payment["organization_id"] == organization_id else None
+
+    async def get_payment_by_order(self, order_code: str) -> dict[str, Any] | None:
+        return self.payments.get(order_code)
+
+    async def complete_payment(self, order_code: str, provider_transaction_id: str, amount_vnd: int, transfer_content: str, paid_at: datetime) -> dict[str, Any]:
+        payment = self.payments.get(order_code)
+        if payment is None:
+            raise KeyError(order_code)
+        if payment["status"] == "PAID":
+            return payment
+        if payment["amount_vnd"] != amount_vnd:
+            raise ValueError("payment_amount_mismatch")
+        payment.update({
+            "status": "PAID",
+            "provider_transaction_id": provider_transaction_id,
+            "transfer_content": transfer_content,
+            "paid_at": paid_at.isoformat(),
+        })
+        plan = get_plan(payment["plan_code"])
+        now = paid_at
+        subscription = {
+            "id": str(uuid4()),
+            "organization_id": payment["organization_id"],
+            "plan_code": plan.code,
+            "status": "ACTIVE",
+            "starts_at": now.isoformat(),
+            "ends_at": (now + timedelta(days=plan.duration_days or 30)).isoformat(),
+            "provider": "sepay",
+            "provider_reference": order_code,
+        }
+        self.subscriptions.append(subscription)
+        payment["subscription"] = subscription
+        return payment
 
     async def get_employee(self, employee_id: str) -> dict[str, Any] | None:
         return self.employees.get(employee_id)
@@ -291,7 +465,7 @@ class InMemoryRepository:
         return dict(self.settings)
 
 
-class PrismaRepository:
+class PrismaRepository(PrismaBillingMixin):
     """Production repository. It opens Prisma lazily on first API operation."""
 
     def __init__(self) -> None:
@@ -319,9 +493,12 @@ class PrismaRepository:
             await self.client.connect()
             self._connected = True
 
-    async def authenticate(self, username: str, password: str) -> dict[str, Any] | None:
+    async def authenticate(self, identifier: str, password: str) -> dict[str, Any] | None:
         await self._ensure_connected()
-        user = await self.client.useraccount.find_unique(where={"username": username})
+        normalized = identifier.strip().lower()
+        user = await self.client.useraccount.find_first(
+            where={"OR": [{"username": normalized}, {"email": normalized}]},
+        )
         if not user or not user.isActive or not verify_password(password, user.passwordHash):
             return None
         return {
@@ -927,9 +1104,46 @@ class PrismaRepository:
         return {
             "id": account.id,
             "username": account.username,
+            "email": getattr(account, "email", None),
             "role": str(account.role),
             "organization_id": account.organizationId,
             "is_active": account.isActive,
+            "email_verified": getattr(account, "emailVerifiedAt", None) is not None,
+        }
+
+    @staticmethod
+    def _subscription_to_dict(subscription: Any) -> dict[str, Any]:
+        if isinstance(subscription, dict):
+            return dict(subscription)
+        return {
+            "id": subscription.id,
+            "organization_id": subscription.organizationId,
+            "plan_code": subscription.planCode,
+            "status": str(subscription.status),
+            "starts_at": subscription.startsAt.isoformat(),
+            "ends_at": subscription.endsAt.isoformat() if subscription.endsAt else None,
+            "provider": getattr(subscription, "provider", None),
+            "provider_reference": getattr(subscription, "providerReference", None),
+        }
+
+    @staticmethod
+    def _payment_to_dict(payment: Any) -> dict[str, Any]:
+        if isinstance(payment, dict):
+            return dict(payment)
+        return {
+            "id": payment.id,
+            "organization_id": payment.organizationId,
+            "order_code": payment.orderCode,
+            "plan_code": payment.planCode,
+            "amount_vnd": payment.amountVnd,
+            "status": str(payment.status),
+            "provider": payment.provider,
+            "provider_transaction_id": getattr(payment, "providerTransactionId", None),
+            "transfer_content": getattr(payment, "transferContent", None),
+            "payment_url": getattr(payment, "paymentUrl", None),
+            "qr_code_url": getattr(payment, "qrCodeUrl", None),
+            "expires_at": payment.expiresAt.isoformat() if payment.expiresAt else None,
+            "paid_at": payment.paidAt.isoformat() if payment.paidAt else None,
         }
 
     @staticmethod

@@ -55,11 +55,20 @@ def verify_password(password: str, encoded: str) -> bool:
         return False
 
 
-def create_access_token(subject: str, *, role: str, expires_in_seconds: Optional[int] = None) -> str:
+def create_access_token(
+    subject: str,
+    *,
+    role: str,
+    organization_id: Optional[str] = None,
+    expires_in_seconds: Optional[int] = None,
+) -> str:
     now = int(time.time())
     expires = now + int(expires_in_seconds or settings.access_token_expire_seconds)
     header = _urlsafe_encode(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode())
-    payload = _urlsafe_encode(json.dumps({"sub": subject, "role": role, "iat": now, "exp": expires}, separators=(",", ":")).encode())
+    claims: dict[str, Any] = {"sub": subject, "role": role, "iat": now, "exp": expires}
+    if organization_id:
+        claims["organization_id"] = organization_id
+    payload = _urlsafe_encode(json.dumps(claims, separators=(",", ":")).encode())
     unsigned = f"{header}.{payload}".encode("ascii")
     signature = hmac.new(settings.jwt_secret.encode("utf-8"), unsigned, hashlib.sha256).digest()
     return f"{header}.{payload}.{_urlsafe_encode(signature)}"
