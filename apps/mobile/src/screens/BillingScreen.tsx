@@ -2,7 +2,6 @@ import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {
   ActivityIndicator,
   Image,
-  Linking,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -83,7 +82,7 @@ export function BillingScreen({onBack}: Props) {
 
   async function buy(plan: Plan) {
     if (plan.contact_only) {
-      await Linking.openURL('https://covasol.com.vn/#contact').catch(() => {});
+      setError('Gói Business cần liên hệ kinh doanh. Hãy dùng kênh liên hệ chính thức của CovaVision.');
       return;
     }
     setBusyPlan(plan.code);

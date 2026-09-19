@@ -3,6 +3,7 @@ import { Check, CreditCard, ExternalLink, QrCode, ShieldCheck, UsersRound, X } f
 import { api } from '../services/api'
 
 const money = value => Number(value || 0).toLocaleString('vi-VN') + 'đ'
+const BILLING_CONTACT_URL = String(import.meta.env.VITE_BILLING_CONTACT_URL || '').trim()
 
 export default function Billing() {
   const [plans, setPlans] = useState([])
@@ -43,6 +44,11 @@ export default function Billing() {
   }, [summary, usage.employees])
 
   async function buy(plan) {
+    if (plan.contact_only) {
+      if (BILLING_CONTACT_URL) window.open(BILLING_CONTACT_URL, '_blank', 'noopener,noreferrer')
+      else setError('Gói Business cần liên hệ kinh doanh. Hãy cấu hình VITE_BILLING_CONTACT_URL cho desktop.')
+      return
+    }
     setBusyPlan(plan.code)
     setError('')
     const response = await api.createBillingCheckout(plan.code)
@@ -74,7 +80,7 @@ export default function Billing() {
             <div className="text-xs font-black uppercase tracking-widest" style={{ color: 'var(--cv-text-brand)' }}>{plan.name}</div>
             <div className="mt-3 text-2xl font-black" style={{ color: 'var(--cv-text-primary)', fontFamily: 'var(--cv-font-heading)' }}>{plan.contact_only ? 'Liên hệ' : plan.monthly_price_vnd === 0 ? 'Miễn phí' : `${money(plan.monthly_price_vnd)} / tháng`}</div>
             <div className="mt-4 flex-1 space-y-2 text-sm" style={{ color: 'var(--cv-text-secondary)' }}><div><Check size={15} className="mr-2 inline text-emerald-600" />{plan.max_employees ?? 'Không giới hạn'} nhân viên</div><div><Check size={15} className="mr-2 inline text-emerald-600" />{plan.max_face_templates ?? 'Không giới hạn'} khuôn mặt</div><div><Check size={15} className="mr-2 inline text-emerald-600" />Ghi nhận quét mặt tự động</div></div>
-            <button disabled={current || plan.contact_only || busyPlan === plan.code} onClick={() => plan.contact_only ? window.open('https://covasol.com.vn/#contact', '_blank', 'noopener,noreferrer') : buy(plan)} className={`cv-btn mt-6 w-full justify-center ${current ? 'cv-btn-secondary' : 'cv-btn-primary'}`}>{busyPlan === plan.code ? 'Đang tạo đơn...' : plan.contact_only ? 'Liên hệ tư vấn' : current ? 'Gói hiện tại' : 'Chọn gói'}</button>
+            <button disabled={current || busyPlan === plan.code} onClick={() => buy(plan)} className={`cv-btn mt-6 w-full justify-center ${current ? 'cv-btn-secondary' : 'cv-btn-primary'}`}>{busyPlan === plan.code ? 'Đang tạo đơn...' : plan.contact_only ? 'Liên hệ tư vấn' : current ? 'Gói hiện tại' : 'Chọn gói'}</button>
           </article>
         })}
       </div>
