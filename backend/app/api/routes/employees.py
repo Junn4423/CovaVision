@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.api.deps import get_current_user, get_recognition_service, get_repository
 from app.api.image_input import read_image_request
 from app.billing.quotas import quota_error
+from app.api.routes.accounts import require_admin
 from app.db.repository import Repository
 from app.recognition.service import RecognitionService, RecognitionUnavailable
 
@@ -50,7 +51,7 @@ async def get_employee(
 @router.post("")
 async def save_employee(
     payload: dict[str, Any],
-    current_user: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_admin),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     organization_id = _organization_id(current_user)
@@ -68,7 +69,7 @@ async def save_employee(
 async def update_employee(
     employee_id: str,
     payload: dict[str, Any],
-    current_user: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_admin),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     organization_id = _organization_id(current_user)
@@ -82,7 +83,7 @@ async def update_employee(
 @router.post("/face")
 async def register_face(
     request: Request,
-    current_user: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_admin),
     repository: Repository = Depends(get_repository),
     recognition: RecognitionService = Depends(get_recognition_service),
 ) -> dict[str, Any]:
@@ -138,7 +139,7 @@ async def employee_image(
 @router.delete("/{employee_id}/face")
 async def clear_face(
     employee_id: str,
-    current_user: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_admin),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     organization_id = _organization_id(current_user)
@@ -155,7 +156,7 @@ async def clear_face(
 @router.delete("/{employee_id}")
 async def delete_employee(
     employee_id: str,
-    current_user: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_admin),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     organization_id = _organization_id(current_user)

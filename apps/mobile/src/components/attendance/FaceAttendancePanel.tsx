@@ -30,7 +30,7 @@ import {api} from '../../services/api';
 import {RtspStreamPlayer, RtspStreamPlayerRef} from './RtspStreamPlayer';
 
 type AttendanceMode = 'auto_record';
-type AttendanceType = 'checkin' | 'checkout';
+type AttendanceType = 'auto';
 type FeedbackType = 'success' | 'warning' | 'error';
 type FacePrecheckStatus =
   | 'idle'
@@ -115,8 +115,6 @@ const PRECHECK_LOCKED_INTERVAL_MS = 400;
 const PRECHECK_LOCK_MIN_PROBE_DELAY_MS = 300;
 const PRECHECK_FIRST_SCAN_DELAY_MS = 150;
 const PRECHECK_READY_STREAK_REQUIRED = 2;
-const FACE_DETECT_TOLERANCE = 0.5;
-const RTSP_DETECT_TOLERANCE = 0.54;
 
 const INITIAL_PRECHECK: FacePrecheckState = {
   status: 'idle',
@@ -707,7 +705,6 @@ export function FaceAttendancePanel({
       // Query Server 70 InsightFace SCRFD (runs in ~15ms on server)
       const response = normalizeFaceDetectionResponse(await detectImage({
         image_base64: imageBase64,
-        tolerance: isRtspMode ? RTSP_DETECT_TOLERANCE : FACE_DETECT_TOLERANCE,
         include_preview: false,
       }));
 
@@ -1107,9 +1104,7 @@ export function FaceAttendancePanel({
       const effectiveAttendanceType = 'auto' as const;
       const response = await submitImage({
         image_base64: capturedImageBase64,
-        attendance_type: effectiveAttendanceType,
         include_preview: false,
-        tolerance: isRtspMode ? RTSP_DETECT_TOLERANCE : FACE_DETECT_TOLERANCE,
       });
 
       const responseMode = normalizeAttendanceMode(response?.attendance_mode || activeMode);

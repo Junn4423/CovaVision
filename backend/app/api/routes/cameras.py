@@ -9,11 +9,19 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import get_current_user, get_repository
+from app.api.routes.accounts import require_admin
 from app.camera.discovery import public_discovery_candidate
 from app.camera.speaker import speak_to_camera
 from app.db.repository import Repository
 
 router = APIRouter(prefix="/api/v1/cameras", tags=["cameras"])
+
+
+def _organization_id(user: dict[str, Any]) -> str:
+    organization_id = str(user.get("organization_id") or "").strip()
+    if not organization_id:
+        raise HTTPException(status_code=401, detail="Phiên đăng nhập thiếu tổ chức")
+    return organization_id
 
 
 _HIDDEN_CAMERA_KEYS = {
@@ -99,10 +107,10 @@ def get_discovery(request: Request) -> Any:
 
 @router.get("")
 async def list_cameras(
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
-    return {"success": True, "cameras": [public_camera(item) for item in await repository.list_cameras()]}
+    return {"success": True, "cameras": [public_camera(item) for item in await repository.list_cameras(_organization_id(current_user))]}
 
 
 @router.post("/discover")
@@ -134,7 +142,7 @@ async def discover_cameras(
 async def save_camera(
     payload: dict[str, Any],
     request: Request,
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_admin),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     camera_payload = dict(payload)
@@ -164,6 +172,7 @@ async def save_camera(
             camera_payload["name"] = requested_name
     if not str(camera_payload.get("name") or "").strip():
         raise HTTPException(status_code=422, detail="Camera name is required")
+    camera_payload["organization_id"] = _organization_id(current_user)
     camera = await repository.save_camera(camera_payload)
     return {"success": True, "camera": public_camera(camera)}
 
@@ -172,24 +181,27 @@ async def save_camera(
 async def delete_camera(
     camera_id: str,
     request: Request,
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_admin),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
+    organization_id = _organization_id(current_user)
+    if await repository.get_camera(camera_id, organization_id) is None:
+        raise HTTPException(status_code=404, detail="Camera not found")
     await asyncio.to_thread(get_manager(request).stop, camera_id)
-    return {"success": await repository.delete_camera(camera_id)}
+    return {"success": await repository.delete_camera(camera_id, organization_id)}
 
 
 @router.post("/start")
 async def start_camera(
     payload: dict[str, Any],
     request: Request,
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     camera_id = str(payload.get("camera_id") or payload.get("id") or "").strip()
     if not camera_id:
         raise HTTPException(status_code=422, detail="camera_id is required")
-    camera = await repository.get_camera(camera_id)
+    camera = await repository.get_camera(camera_id, _organization_id(current_user))
     if camera is None:
         raise HTTPException(status_code=404, detail="Camera not found")
     return await get_manager(request).start(camera_id, camera)
@@ -199,9 +211,12 @@ async def start_camera(
 async def stop_camera(
     request: Request,
     payload: Optional[dict[str, Any]] = None,
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(get_current_user),
+    repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     camera_id = str((payload or {}).get("camera_id") or "").strip() or None
+    if camera_id and await repository.get_camera(camera_id, _organization_id(current_user)) is None:
+        raise HTTPException(status_code=404, detail="Camera not found")
     return await asyncio.to_thread(get_manager(request).stop, camera_id)
 
 
@@ -209,8 +224,11 @@ async def stop_camera(
 async def camera_status(
     request: Request,
     camera_id: Optional[str] = None,
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(get_current_user),
+    repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
+    if camera_id and await repository.get_camera(camera_id, _organization_id(current_user)) is None:
+        raise HTTPException(status_code=404, detail="Camera not found")
     return {"success": True, **get_manager(request).status(camera_id)}
 
 
@@ -218,8 +236,11 @@ async def camera_status(
 async def camera_snapshot(
     request: Request,
     camera_id: Optional[str] = None,
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(get_current_user),
+    repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
+    if camera_id and await repository.get_camera(camera_id, _organization_id(current_user)) is None:
+        raise HTTPException(status_code=404, detail="Camera not found")
     snapshot = get_manager(request).snapshot(camera_id)
     if snapshot is None:
         return {"success": False, "message": "Camera chưa có frame mới."}
@@ -230,8 +251,11 @@ async def camera_snapshot(
 async def camera_stream(
     request: Request,
     camera_id: Optional[str] = None,
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(get_current_user),
+    repository: Repository = Depends(get_repository),
 ) -> StreamingResponse:
+    if camera_id and await repository.get_camera(camera_id, _organization_id(current_user)) is None:
+        raise HTTPException(status_code=404, detail="Camera not found")
     manager = get_manager(request)
     if not manager.is_running(camera_id):
         raise HTTPException(status_code=409, detail="Camera is not running")
@@ -242,10 +266,10 @@ async def camera_stream(
 async def speak_camera(
     camera_id: str,
     payload: dict[str, Any],
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_admin),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
-    camera = await repository.get_camera(camera_id)
+    camera = await repository.get_camera(camera_id, _organization_id(current_user))
     if camera is None:
         raise HTTPException(status_code=404, detail="Camera not found")
     return await asyncio.to_thread(speak_to_camera, camera, payload)

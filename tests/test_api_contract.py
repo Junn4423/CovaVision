@@ -63,6 +63,17 @@ def test_camera_stream_contract_requires_authentication() -> None:
     assert response.status_code == 401
 
 
+def test_manual_attendance_cannot_forge_a_record_without_an_image() -> None:
+    headers = {"Authorization": f"Bearer {client.post('/api/v1/auth/login', json={'username': 'admin.test', 'password': 'test-password'}).json()['access_token']}"}
+    response = client.post(
+        "/api/v1/attendance",
+        headers=headers,
+        json={"employee_id": "EMP-001"},
+    )
+
+    assert response.status_code == 405
+
+
 def test_camera_speaker_route_uses_backend_adapter(monkeypatch) -> None:
     import asyncio
 

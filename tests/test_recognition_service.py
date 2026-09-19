@@ -45,6 +45,21 @@ async def test_detect_matches_registered_employee_without_returning_embedding() 
 
 
 @pytest.mark.asyncio
+async def test_client_cannot_lower_server_recognition_threshold() -> None:
+    repository = InMemoryRepository()
+    await repository.save_employee({
+        "employee_id": "EMP-001",
+        "name": "Ngọc Chung",
+        "embedding": [0.0, 1.0],
+    })
+    service = RecognitionService(repository, recognizer_factory=FakeRecognizer)
+
+    result = await service.detect(b"fake-image", similarity_threshold=0.0)
+
+    assert result["matched"] is False
+
+
+@pytest.mark.asyncio
 async def test_recognize_creates_local_attendance_record_for_match() -> None:
     repository = InMemoryRepository()
     await repository.save_employee({

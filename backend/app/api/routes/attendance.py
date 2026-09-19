@@ -1,16 +1,24 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.deps import get_current_user, get_recognition_service, get_repository
-from app.api.image_input import read_image_request, similarity_threshold
+from app.api.image_input import read_image_request
 from app.db.repository import Repository
 from app.recognition.service import RecognitionService, RecognitionUnavailable
 
 router = APIRouter(prefix="/api/v1/attendance", tags=["attendance"])
+
+
+def _organization_id(user: dict[str, Any]) -> str:
+    organization_id = str(user.get("organization_id") or "").strip()
+    if not organization_id:
+        raise HTTPException(status_code=401, detail="Phiên đăng nhập thiếu tổ chức")
+    return organization_id
 
 
 def _now() -> str:
@@ -34,7 +42,7 @@ def _is_today(captured_at: Any) -> bool:
             ts = captured_at if captured_at.tzinfo else captured_at.replace(tzinfo=timezone.utc)
         else:
             return False
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date()
         return ts.date() == today
     except (ValueError, TypeError):
         return False
@@ -60,15 +68,14 @@ async def _manual_record(payload: dict[str, Any], repository: Repository) -> dic
 async def create_attendance(
     payload: dict[str, Any],
     _: dict[str, Any] = Depends(get_current_user),
-    repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
-    return await _manual_record(payload, repository)
+    raise HTTPException(status_code=405, detail="Chấm công chỉ được ghi nhận từ ảnh nhận diện khuôn mặt")
 
 
 @router.post("/recognize")
 async def recognize_attendance(
     request: Request,
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(get_current_user),
     recognition: RecognitionService = Depends(get_recognition_service),
 ) -> dict[str, Any]:
     # API-02: Wrap read_image_request to return 422 instead of 500 on invalid input.
@@ -83,7 +90,7 @@ async def recognize_attendance(
             camera_id=str(payload.get("camera_id") or "").strip() or None,
             location=payload.get("location"),
             include_preview=bool(payload.get("include_preview", False)),
-            similarity_threshold=similarity_threshold(payload),
+            organization_id=_organization_id(current_user),
         )
     except RecognitionUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -94,7 +101,7 @@ async def recognize_attendance(
 @router.post("/detect")
 async def detect_faces(
     request: Request,
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(get_current_user),
     recognition: RecognitionService = Depends(get_recognition_service),
 ) -> dict[str, Any]:
     payload, image_bytes = await read_image_request(request)
@@ -102,7 +109,7 @@ async def detect_faces(
         return await recognition.detect(
             image_bytes,
             max_faces=int(payload.get("max_faces") or 3),
-            similarity_threshold=similarity_threshold(payload),
+            organization_id=_organization_id(current_user),
         )
     except RecognitionUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -113,41 +120,41 @@ async def detect_faces(
 @router.get("/records")
 async def attendance_records(
     employee_id: Optional[str] = None,
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
-    records = await repository.list_attendance({"employee_id": employee_id})
+    records = await repository.list_attendance({"employee_id": employee_id}, _organization_id(current_user))
     return {"success": True, "records": records, "attendance": records}
 
 
 @router.get("/today")
 async def today_attendance(
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     # BIZ-02: Filter records to today only.
-    records = await repository.list_attendance({})
+    records = await repository.list_attendance({}, _organization_id(current_user))
     today_records = [r for r in records if _is_today(r.get("captured_at"))]
     return {"success": True, "records": today_records[:100], "attendance": today_records[:100]}
 
 
 @router.get("/recent")
 async def recent_attendance(
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
-    records = await repository.list_attendance({})
+    records = await repository.list_attendance({}, _organization_id(current_user))
     return {"success": True, "records": records[:20]}
 
 
 @router.get("/stats")
 async def attendance_stats(
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     # BIZ-01: Compute stats correctly — today only counts today's records,
     # accepted only counts accepted records.
-    records = await repository.list_attendance({})
+    records = await repository.list_attendance({}, _organization_id(current_user))
     today_records = [r for r in records if _is_today(r.get("captured_at"))]
     accepted_records = [r for r in records if str(r.get("status", "")).lower() == "accepted"]
     return {
@@ -161,13 +168,12 @@ async def attendance_stats(
 @router.get("/{attendance_id}")
 async def attendance_status(
     attendance_id: str,
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     # BIZ-08: Query the actual record from the database instead of hardcoding.
-    records = await repository.list_attendance({})
+    records = await repository.list_attendance({}, _organization_id(current_user))
     record = next((r for r in records if str(r.get("id", "")) == attendance_id), None)
     if record is None:
         raise HTTPException(status_code=404, detail="Attendance record not found")
     return {"success": True, **record}
-

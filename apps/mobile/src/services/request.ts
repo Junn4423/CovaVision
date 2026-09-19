@@ -100,7 +100,7 @@ async function doRequest(path: string, baseUrl: string, options: RequestInit & {
     return {...(payload || {}), success: false, message: payload?.detail || payload?.message || EXPIRED_SESSION_MESSAGE};
   }
   if (!response.ok) {
-    if (payload && typeof payload === 'object') return payload;
+    if (payload && typeof payload === 'object') return {...payload, message: payload.message || payload.detail || `HTTP ${response.status}`};
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
   return payload;

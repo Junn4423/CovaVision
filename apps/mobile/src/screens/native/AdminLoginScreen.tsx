@@ -18,21 +18,26 @@ import {colors, radii, shadows, spacing} from '../../design-system';
 type Props = {onBack: () => void; onLoggedIn: (payload: any) => void};
 
 export function AdminLoginScreen({onBack, onLoggedIn}: Props) {
+  const [mode, setMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [organizationName, setOrganizationName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   async function submit() {
     if (!username.trim() || !password) {
-      setError('Vui lòng nhập tài khoản và mật khẩu.');
+      setError(mode === 'register' ? 'Vui lòng nhập email và mật khẩu.' : 'Vui lòng nhập email/tài khoản và mật khẩu.');
       return;
     }
     setLoading(true);
     setError('');
     try {
-      const response = await api.adminLogin(username.trim(), password);
+      const response = mode === 'register'
+        ? await api.registerAccount(username.trim(), password, fullName, organizationName)
+        : await api.adminLogin(username.trim(), password);
       if (!response?.success) {
         setError(response?.message || 'Đăng nhập thất bại.');
         return;
@@ -70,24 +75,35 @@ export function AdminLoginScreen({onBack, onLoggedIn}: Props) {
             </View>
           </View>
 
-          <Text style={styles.title}>Đăng nhập quản trị</Text>
+          <Text style={styles.title}>{mode === 'register' ? 'Tạo workspace' : 'Đăng nhập quản trị'}</Text>
           <Text style={styles.subtitle}>
-            Quản trị viên và nhân viên vận hành hệ thống điểm danh CovaVision.
+            {mode === 'register' ? 'Bắt đầu dùng thử 14 ngày với 3 nhân viên và 3 khuôn mặt.' : 'Quản trị viên và nhân viên vận hành hệ thống điểm danh CovaVision.'}
           </Text>
 
           {/* Form inputs */}
           <View style={styles.form}>
             <View>
-              <Text style={styles.fieldLabel}>Tài khoản</Text>
+              <Text style={styles.fieldLabel}>{mode === 'register' ? 'Email' : 'Email hoặc tài khoản'}</Text>
               <TextInput
                 value={username}
                 onChangeText={setUsername}
-                placeholder="Nhập tên đăng nhập"
+                placeholder={mode === 'register' ? 'you@company.vn' : 'Nhập email hoặc username'}
                 placeholderTextColor={colors.textMuted}
                 autoCapitalize="none"
                 style={styles.input}
               />
             </View>
+
+            {mode === 'register' ? <>
+              <View>
+                <Text style={styles.fieldLabel}>Tên người quản trị</Text>
+                <TextInput value={fullName} onChangeText={setFullName} placeholder="Nguyễn Văn A" placeholderTextColor={colors.textMuted} autoCapitalize="words" style={styles.input} />
+              </View>
+              <View>
+                <Text style={styles.fieldLabel}>Tên công ty / workspace</Text>
+                <TextInput value={organizationName} onChangeText={setOrganizationName} placeholder="Công ty của tôi" placeholderTextColor={colors.textMuted} style={styles.input} />
+              </View>
+            </> : null}
 
             <View>
               <Text style={styles.fieldLabel}>Mật khẩu</Text>
@@ -123,8 +139,12 @@ export function AdminLoginScreen({onBack, onLoggedIn}: Props) {
               {loading ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <Text style={styles.buttonText}>Đăng nhập</Text>
+                <Text style={styles.buttonText}>{mode === 'register' ? 'Tạo tài khoản dùng thử' : 'Đăng nhập'}</Text>
               )}
+            </Pressable>
+
+            <Pressable onPress={() => {setMode(current => current === 'login' ? 'register' : 'login'); setError('');}} style={styles.link}>
+              <Text style={styles.linkText}>{mode === 'register' ? 'Đã có tài khoản? Đăng nhập' : 'Chưa có tài khoản? Tạo workspace bằng email'}</Text>
             </Pressable>
 
             <Pressable onPress={onBack} style={styles.link}>

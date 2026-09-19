@@ -490,8 +490,6 @@ export default function Attendance() {
         const rawRes = await api.attendanceDetectFrame({
           image_base64: imageBase64,
           max_faces: 3,
-          recognize: true,
-          tolerance: 0.5,
         })
 
         if (cancelled) return

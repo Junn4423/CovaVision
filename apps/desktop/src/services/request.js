@@ -36,14 +36,15 @@ function readStoredAuth() {
 sessionToken = readStoredToken()
 authData = readStoredAuth()
 
-export function setSessionToken(token) {
+export function setSessionToken(token, { persist = false } = {}) {
   sessionToken = token ? String(token).trim() : null
   if (sessionToken) sessionExpiredNotified = false
   if (typeof window === 'undefined') return
   try {
     if (sessionToken) {
       sessionStorage.setItem(SESSION_TOKEN_STORAGE_KEY, sessionToken)
-      localStorage.setItem(SESSION_TOKEN_STORAGE_KEY, sessionToken)
+      if (persist) localStorage.setItem(SESSION_TOKEN_STORAGE_KEY, sessionToken)
+      else localStorage.removeItem(SESSION_TOKEN_STORAGE_KEY)
     } else {
       sessionStorage.removeItem(SESSION_TOKEN_STORAGE_KEY)
       localStorage.removeItem(SESSION_TOKEN_STORAGE_KEY)
@@ -57,14 +58,15 @@ export function getSessionToken() {
   return sessionToken || readStoredToken()
 }
 
-export function setAuthData(value) {
+export function setAuthData(value, { persist = false } = {}) {
   authData = value && typeof value === 'object' ? { ...value } : null
   if (typeof window === 'undefined') return
   try {
     if (authData) {
       const serialized = JSON.stringify(authData)
       sessionStorage.setItem(AUTH_STORAGE_KEY, serialized)
-      localStorage.setItem(AUTH_STORAGE_KEY, serialized)
+      if (persist) localStorage.setItem(AUTH_STORAGE_KEY, serialized)
+      else localStorage.removeItem(AUTH_STORAGE_KEY)
     } else {
       sessionStorage.removeItem(AUTH_STORAGE_KEY)
       localStorage.removeItem(AUTH_STORAGE_KEY)

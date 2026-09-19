@@ -64,7 +64,7 @@ export function AttendanceActionScreen({adminUser, onBack}: Props) {
           loadLatestSettings={loadSettings}
           detectImage={api.attendanceDetectFrame}
           submitImage={api.attendanceImageBase64}
-          onAutoDetectedAttendance={async payload => submitAttendance({image_base64: payload.imageBase64, attendance_type: payload.attendanceType, attendance_cooldown_seconds: payload.cooldownSeconds})}
+          onAutoDetectedAttendance={async payload => submitAttendance({image_base64: payload.imageBase64})}
           onSubmitSuccess={async response => setStatus(response?.message || 'Đã ghi nhận điểm danh.')}
         />
       </View>

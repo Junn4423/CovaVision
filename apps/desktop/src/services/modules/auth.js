@@ -14,7 +14,7 @@ function firstText(...values) {
   return ''
 }
 
-function applyLoginContext(payload, username) {
+function applyLoginContext(payload, username, persist = false) {
   const token = firstText(payload?.access_token, payload?.token, payload?.data?.access_token)
   const user = payload?.user || payload?.account || {}
   const context = {
@@ -25,12 +25,12 @@ function applyLoginContext(payload, username) {
     user,
     role: firstText(payload?.role, user?.role, 'admin'),
   }
-  setAuthData(context)
-  setSessionToken(token)
+  setAuthData(context, { persist })
+  setSessionToken(token, { persist })
   return context
 }
 
-async function loginSystem(username, password) {
+async function loginSystem(username, password, options = {}) {
   const normalizedUser = String(username || '').trim()
   const normalizedPass = String(password || '').trim()
   if (!normalizedUser || !normalizedPass) {
@@ -44,7 +44,7 @@ async function loginSystem(username, password) {
       body: JSON.stringify({ username: normalizedUser, password: normalizedPass }),
       timeout: 15000,
     })
-    return applyLoginContext(payload, normalizedUser)
+    return applyLoginContext(payload, normalizedUser, options.persist === true)
   } catch (error) {
     return { success: false, message: error?.message || 'Không thể kết nối CovaVision API.' }
   }
@@ -98,8 +98,8 @@ async function logout() {
 }
 
 export const authApi = {
-  adminLogin: (username, password) => loginSystem(username, password),
-  login: (username, password) => loginSystem(username, password),
+  adminLogin: (username, password, options) => loginSystem(username, password, options),
+  login: (username, password, options) => loginSystem(username, password, options),
   register: registerSystem,
   googleLogin,
   adminLogout: logout,

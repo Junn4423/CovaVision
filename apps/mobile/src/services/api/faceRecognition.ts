@@ -10,8 +10,12 @@ function recognize(path: string, payload: FormData | Record<string, unknown>) {
 }
 
 export const faceRecognitionApi = {
-  checkAttendance: (employeeId: string, location: unknown = null, attendanceType = 'auto', options: Record<string, unknown> | null = null) =>
-    recognize('/api/v1/attendance', {employee_id: employeeId, location, attendance_type: attendanceType, ...(options || {})}),
+  // A record can only be created from a verified image. Keep this method for
+  // old callers, but never send a forgeable employee id to the API.
+  checkAttendance: async () => ({
+    success: false,
+    message: 'Chấm công cần ảnh nhận diện khuôn mặt.',
+  }),
   attendanceImage: (formData: FormData) => recognize('/api/v1/attendance/recognize', formData),
   attendanceImageBase64: (data: Record<string, unknown>) => recognize('/api/v1/attendance/recognize', data),
   attendanceDetectFrame: (data: Record<string, unknown>) => recognize('/api/v1/attendance/detect', data),

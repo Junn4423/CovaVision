@@ -80,6 +80,7 @@ class RecognitionService:
         *,
         max_faces: int = 3,
         similarity_threshold: float | None = None,
+        organization_id: str | None = None,
     ) -> dict[str, Any]:
         if not image_bytes:
             raise ValueError("Ảnh chấm công không được để trống")
@@ -96,7 +97,7 @@ class RecognitionService:
 
         raw_faces = recognizer.engine.detect_and_encode(frame)
         candidates = []
-        for item in await self.repository.list_face_candidates():
+        for item in await self.repository.list_face_candidates(organization_id):
             embedding = item.get("embedding")
             if embedding is None:
                 embedding = item.get("face_encoding")
@@ -113,8 +114,10 @@ class RecognitionService:
             except (TypeError, ValueError):
                 continue
 
-        threshold = settings.face_match_threshold if similarity_threshold is None else similarity_threshold
-        threshold = max(0.0, min(1.0, float(threshold)))
+        # Recognition policy belongs to the backend. Keeping a client-provided
+        # threshold here made the live preview and final write disagree and
+        # allowed a browser to lower the acceptance bar.
+        threshold = max(0.0, min(1.0, float(settings.face_match_threshold)))
         detections = []
         for raw_face in list(raw_faces or [])[: max(1, min(int(max_faces), 10))]:
             bbox = [int(float(value)) for value in list(raw_face.get("bbox", []))[:4]]
@@ -177,10 +180,12 @@ class RecognitionService:
         include_preview: bool = False,
         similarity_threshold: float | None = None,
         cooldown_seconds: Any = None,
+        organization_id: str | None = None,
     ) -> dict[str, Any]:
         result = await self.detect(
             image_bytes,
             similarity_threshold=similarity_threshold,
+            organization_id=organization_id,
         )
         if not result["matched"] or not result["detected_user"]:
             return {
@@ -202,6 +207,7 @@ class RecognitionService:
                 "captured_at": datetime.now(timezone.utc).isoformat(),
                 "confidence": result["similarity"],
                 "location": location,
+                "organization_id": organization_id,
             })
         response = {
             **result,

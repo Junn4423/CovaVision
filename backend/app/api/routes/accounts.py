@@ -11,6 +11,13 @@ from app.db.repository import Repository
 router = APIRouter(prefix="/api/v1/accounts", tags=["accounts"])
 
 
+def organization_id(user: dict[str, Any]) -> str:
+    value = str(user.get("organization_id") or "").strip()
+    if not value:
+        raise HTTPException(status_code=401, detail="Phiên đăng nhập thiếu tổ chức")
+    return value
+
+
 def require_admin(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     if user.get("role") not in {"ADMIN", "HR_MANAGER"}:
         raise HTTPException(status_code=403, detail="Administrator permission required")
@@ -19,21 +26,21 @@ def require_admin(user: dict[str, Any] = Depends(get_current_user)) -> dict[str,
 
 @router.get("")
 async def list_accounts(
-    _: dict[str, Any] = Depends(require_admin),
+    current_user: dict[str, Any] = Depends(require_admin),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
-    accounts = await repository.list_accounts()
+    accounts = await repository.list_accounts(organization_id(current_user))
     return {"success": True, "accounts": accounts}
 
 
 @router.post("")
 async def save_account(
     payload: dict[str, Any],
-    _: dict[str, Any] = Depends(require_admin),
+    current_user: dict[str, Any] = Depends(require_admin),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     try:
-        account = await repository.save_account(payload)
+        account = await repository.save_account({**payload, "organization_id": organization_id(current_user)})
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"success": True, "account": account}
@@ -43,7 +50,7 @@ async def save_account(
 async def reset_password(
     account_id: str,
     payload: dict[str, Any],
-    _: dict[str, Any] = Depends(require_admin),
+    current_user: dict[str, Any] = Depends(require_admin),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     password = str(payload.get("password") or "").strip()
@@ -53,7 +60,7 @@ async def reset_password(
     if len(password) < min_len:
         raise HTTPException(status_code=422, detail=f"Mật khẩu phải có ít nhất {min_len} ký tự")
     try:
-        account = await repository.reset_account_password(account_id, password)
+        account = await repository.reset_account_password(account_id, password, organization_id(current_user))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Account not found") from exc
     return {"success": True, "account": account}
@@ -63,11 +70,11 @@ async def reset_password(
 async def set_lock(
     account_id: str,
     payload: dict[str, Any],
-    _: dict[str, Any] = Depends(require_admin),
+    current_user: dict[str, Any] = Depends(require_admin),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     try:
-        account = await repository.set_account_lock(account_id, bool(payload.get("is_locked", False)))
+        account = await repository.set_account_lock(account_id, bool(payload.get("is_locked", False)), organization_id(current_user))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Account not found") from exc
     return {"success": True, "account": account}

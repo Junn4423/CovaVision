@@ -65,25 +65,25 @@ class Repository(Protocol):
 
     async def get_employee_image(self, employee_id: str, organization_id: str | None = None) -> dict[str, Any] | None: ...
 
-    async def list_accounts(self) -> list[dict[str, Any]]: ...
+    async def list_accounts(self, organization_id: str | None = None) -> list[dict[str, Any]]: ...
 
     async def save_account(self, payload: dict[str, Any]) -> dict[str, Any]: ...
 
-    async def reset_account_password(self, account_id: str, password: str) -> dict[str, Any]: ...
+    async def reset_account_password(self, account_id: str, password: str, organization_id: str | None = None) -> dict[str, Any]: ...
 
-    async def set_account_lock(self, account_id: str, is_locked: bool) -> dict[str, Any]: ...
+    async def set_account_lock(self, account_id: str, is_locked: bool, organization_id: str | None = None) -> dict[str, Any]: ...
 
-    async def list_cameras(self) -> list[dict[str, Any]]: ...
+    async def list_cameras(self, organization_id: str | None = None) -> list[dict[str, Any]]: ...
 
-    async def get_camera(self, camera_id: str) -> dict[str, Any] | None: ...
+    async def get_camera(self, camera_id: str, organization_id: str | None = None) -> dict[str, Any] | None: ...
 
     async def save_camera(self, payload: dict[str, Any]) -> dict[str, Any]: ...
 
-    async def delete_camera(self, camera_id: str) -> bool: ...
+    async def delete_camera(self, camera_id: str, organization_id: str | None = None) -> bool: ...
 
-    async def create_attendance(self, payload: dict[str, Any]) -> dict[str, Any]: ...
+    async def create_attendance(self, payload: dict[str, Any], organization_id: str | None = None) -> dict[str, Any]: ...
 
-    async def list_attendance(self, filters: dict[str, Any]) -> list[dict[str, Any]]: ...
+    async def list_attendance(self, filters: dict[str, Any], organization_id: str | None = None) -> list[dict[str, Any]]: ...
 
     async def get_settings(self, key: str | None = None) -> dict[str, Any]: ...
 
@@ -349,7 +349,7 @@ class InMemoryRepository:
             "image_url": employee.get("image_url", ""),
         }
 
-    async def list_accounts(self) -> list[dict[str, Any]]:
+    async def list_accounts(self, organization_id: str | None = None) -> list[dict[str, Any]]:
         return [
             {
                 key: value
@@ -380,24 +380,24 @@ class InMemoryRepository:
         self.users[username] = account
         return {key: value for key, value in account.items() if key != "password_hash"}
 
-    async def reset_account_password(self, account_id: str, password: str) -> dict[str, Any]:
+    async def reset_account_password(self, account_id: str, password: str, organization_id: str | None = None) -> dict[str, Any]:
         user = next((item for item in self.users.values() if item.get("id") == account_id or item.get("username") == account_id), None)
         if user is None:
             raise KeyError(account_id)
         user["password_hash"] = hash_password(password)
         return {key: value for key, value in user.items() if key != "password_hash"}
 
-    async def set_account_lock(self, account_id: str, is_locked: bool) -> dict[str, Any]:
+    async def set_account_lock(self, account_id: str, is_locked: bool, organization_id: str | None = None) -> dict[str, Any]:
         user = next((item for item in self.users.values() if item.get("id") == account_id or item.get("username") == account_id), None)
         if user is None:
             raise KeyError(account_id)
         user["is_active"] = not is_locked
         return {key: value for key, value in user.items() if key != "password_hash"}
 
-    async def list_cameras(self) -> list[dict[str, Any]]:
+    async def list_cameras(self, organization_id: str | None = None) -> list[dict[str, Any]]:
         return list(self.cameras.values())
 
-    async def get_camera(self, camera_id: str) -> dict[str, Any] | None:
+    async def get_camera(self, camera_id: str, organization_id: str | None = None) -> dict[str, Any] | None:
         return self.cameras.get(camera_id)
 
     async def save_camera(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -422,10 +422,10 @@ class InMemoryRepository:
         self.cameras[camera_id] = camera
         return camera
 
-    async def delete_camera(self, camera_id: str) -> bool:
+    async def delete_camera(self, camera_id: str, organization_id: str | None = None) -> bool:
         return self.cameras.pop(camera_id, None) is not None
 
-    async def create_attendance(self, payload: dict[str, Any]) -> dict[str, Any]:
+    async def create_attendance(self, payload: dict[str, Any], organization_id: str | None = None) -> dict[str, Any]:
         record = {
             "id": str(uuid4()),
             "created_at": _now().isoformat(),
@@ -435,7 +435,7 @@ class InMemoryRepository:
         self.attendance.append(record)
         return record
 
-    async def list_attendance(self, filters: dict[str, Any]) -> list[dict[str, Any]]:
+    async def list_attendance(self, filters: dict[str, Any], organization_id: str | None = None) -> list[dict[str, Any]]:
         items = list(reversed(self.attendance))
         employee_id = str(filters.get("employee_id") or "").strip()
         if employee_id:
@@ -509,18 +509,28 @@ class PrismaRepository(PrismaBillingMixin):
             "is_active": user.isActive,
         }
 
-    async def list_accounts(self) -> list[dict[str, Any]]:
+    async def list_accounts(self, organization_id: str | None = None) -> list[dict[str, Any]]:
         await self._ensure_connected()
-        accounts = await self.client.useraccount.find_many(order={"username": "asc"})
+        where = {"organizationId": organization_id} if organization_id else None
+        accounts = await self.client.useraccount.find_many(where=where, order={"username": "asc"})
         return [self._account_to_dict(account) for account in accounts]
 
     async def save_account(self, payload: dict[str, Any]) -> dict[str, Any]:
         await self._ensure_connected()
-        organization = await self._default_organization()
+        requested_organization_id = str(payload.get("organization_id") or payload.get("organizationId") or "").strip()
+        organization = (
+            await self.client.organization.find_unique(where={"id": requested_organization_id})
+            if requested_organization_id
+            else await self._default_organization()
+        )
+        if organization is None:
+            raise KeyError(requested_organization_id or "organization")
         username = str(payload.get("username") or "").strip()
         if not username:
             raise ValueError("username is required")
         current = await self.client.useraccount.find_unique(where={"username": username})
+        if current is not None and current.organizationId != organization.id:
+            raise ValueError("username_already_registered")
         role = str(payload.get("role") or (str(current.role) if current else "STAFF")).upper()
         if role not in {"ADMIN", "HR_MANAGER", "SUPERVISOR", "STAFF"}:
             role = "STAFF"
@@ -542,9 +552,9 @@ class PrismaRepository(PrismaBillingMixin):
             account = await self.client.useraccount.create(data=data)
         return self._account_to_dict(account)
 
-    async def reset_account_password(self, account_id: str, password: str) -> dict[str, Any]:
+    async def reset_account_password(self, account_id: str, password: str, organization_id: str | None = None) -> dict[str, Any]:
         await self._ensure_connected()
-        account = await self._find_account(account_id)
+        account = await self._find_account(account_id, organization_id)
         if account is None:
             raise KeyError(account_id)
         updated = await self.client.useraccount.update(
@@ -553,9 +563,9 @@ class PrismaRepository(PrismaBillingMixin):
         )
         return self._account_to_dict(updated)
 
-    async def set_account_lock(self, account_id: str, is_locked: bool) -> dict[str, Any]:
+    async def set_account_lock(self, account_id: str, is_locked: bool, organization_id: str | None = None) -> dict[str, Any]:
         await self._ensure_connected()
-        account = await self._find_account(account_id)
+        account = await self._find_account(account_id, organization_id)
         if account is None:
             raise KeyError(account_id)
         updated = await self.client.useraccount.update(
@@ -799,24 +809,38 @@ class PrismaRepository(PrismaBillingMixin):
             "image_url": "",
         }
 
-    async def list_cameras(self) -> list[dict[str, Any]]:
+    async def list_cameras(self, organization_id: str | None = None) -> list[dict[str, Any]]:
         await self._ensure_connected()
-        cameras = await self.client.camera.find_many(where={"isActive": True}, order={"name": "asc"})
+        where: dict[str, Any] = {"isActive": True}
+        if organization_id:
+            where["organizationId"] = organization_id
+        cameras = await self.client.camera.find_many(where=where, order={"name": "asc"})
         return [self._camera_to_dict(camera) for camera in cameras]
 
-    async def get_camera(self, camera_id: str) -> dict[str, Any] | None:
+    async def get_camera(self, camera_id: str, organization_id: str | None = None) -> dict[str, Any] | None:
         await self._ensure_connected()
         camera = await self.client.camera.find_unique(where={"id": camera_id})
+        if camera is not None and organization_id and camera.organizationId != organization_id:
+            camera = None
         return self._camera_to_dict(camera) if camera else None
 
     async def save_camera(self, payload: dict[str, Any]) -> dict[str, Any]:
         await self._ensure_connected()
-        organization = await self._default_organization()
+        requested_organization_id = str(payload.get("organization_id") or payload.get("organizationId") or "").strip()
+        organization = (
+            await self.client.organization.find_unique(where={"id": requested_organization_id})
+            if requested_organization_id
+            else await self._default_organization()
+        )
+        if organization is None:
+            raise KeyError(requested_organization_id or "organization")
         from prisma import fields
 
         requested_id = str(payload.get("id") or "").strip()
         camera_id = requested_id if len(requested_id) == 36 else str(uuid4())
         current = await self.client.camera.find_unique(where={"id": camera_id})
+        if current is not None and requested_organization_id and current.organizationId != organization.id:
+            current = None
         connection_url = str(
             payload.get("connection_url")
             or payload.get("source")
@@ -862,24 +886,36 @@ class PrismaRepository(PrismaBillingMixin):
             camera = await self.client.camera.create(data=data)
         return self._camera_to_dict(camera)
 
-    async def delete_camera(self, camera_id: str) -> bool:
+    async def delete_camera(self, camera_id: str, organization_id: str | None = None) -> bool:
         await self._ensure_connected()
+        camera = await self.client.camera.find_unique(where={"id": camera_id})
+        if camera is None or (organization_id and camera.organizationId != organization_id):
+            return False
         result = await self.client.camera.update(where={"id": camera_id}, data={"isActive": False})
         return bool(result)
 
-    async def create_attendance(self, payload: dict[str, Any]) -> dict[str, Any]:
+    async def create_attendance(self, payload: dict[str, Any], organization_id: str | None = None) -> dict[str, Any]:
         await self._ensure_connected()
-        organization = await self._default_organization()
+        requested_organization_id = str(organization_id or payload.get("organization_id") or payload.get("organizationId") or "").strip()
+        organization = (
+            await self.client.organization.find_unique(where={"id": requested_organization_id})
+            if requested_organization_id
+            else await self._default_organization()
+        )
+        if organization is None:
+            raise KeyError(requested_organization_id or "organization")
         from prisma import fields
 
         employee_id = str(payload.get("employee_id") or payload.get("user_id") or "").strip()
         employee = None
         if employee_id:
-            employee = await self.client.employee.find_first(
-                where={"OR": [{"id": employee_id}, {"employeeCode": employee_id}]},
-            )
+            employee_where: dict[str, Any] = {"OR": [{"id": employee_id}, {"employeeCode": employee_id}]}
+            employee_where = {"AND": [{"organizationId": organization.id}, employee_where]}
+            employee = await self.client.employee.find_first(where=employee_where)
         camera_id = str(payload.get("camera_id") or "").strip()
         camera = await self.client.camera.find_unique(where={"id": camera_id}) if camera_id else None
+        if camera is not None and getattr(camera, "organizationId", organization.id) != organization.id:
+            camera = None
         attendance_type = "AUTO"
         status = str(payload.get("status") or "ACCEPTED").upper()
         if status not in {"ACCEPTED", "REJECTED", "PENDING"}:
@@ -910,14 +946,17 @@ class PrismaRepository(PrismaBillingMixin):
         )
         return self._attendance_to_dict(record)
 
-    async def list_attendance(self, filters: dict[str, Any]) -> list[dict[str, Any]]:
+    async def list_attendance(self, filters: dict[str, Any], organization_id: str | None = None) -> list[dict[str, Any]]:
         await self._ensure_connected()
         where: dict[str, Any] = {}
+        if organization_id:
+            where["organizationId"] = organization_id
         employee_id = str(filters.get("employee_id") or "").strip()
         if employee_id:
-            employee = await self.client.employee.find_first(
-                where={"OR": [{"id": employee_id}, {"employeeCode": employee_id}]},
-            )
+            employee_where: dict[str, Any] = {"OR": [{"id": employee_id}, {"employeeCode": employee_id}]}
+            if organization_id:
+                employee_where = {"AND": [{"organizationId": organization_id}, employee_where]}
+            employee = await self.client.employee.find_first(where=employee_where)
             where["employeeId"] = employee.id if employee else "__not_found__"
 
         start_date = filters.get("start_date")
@@ -1115,10 +1154,11 @@ class PrismaRepository(PrismaBillingMixin):
             "face_count": len(faces) if registered is None else (1 if registered else 0),
         }
 
-    async def _find_account(self, account_id: str) -> Any:
-        return await self.client.useraccount.find_first(
-            where={"OR": [{"id": account_id}, {"username": account_id}]},
-        )
+    async def _find_account(self, account_id: str, organization_id: str | None = None) -> Any:
+        where: dict[str, Any] = {"OR": [{"id": account_id}, {"username": account_id}]}
+        if organization_id:
+            where = {"AND": [{"organizationId": organization_id}, where]}
+        return await self.client.useraccount.find_first(where=where)
 
     @staticmethod
     def _account_to_dict(account: Any) -> dict[str, Any]:

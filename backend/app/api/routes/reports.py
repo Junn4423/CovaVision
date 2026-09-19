@@ -4,13 +4,20 @@ import csv
 import io
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
 from app.api.deps import get_current_user, get_repository
 from app.db.repository import Repository
 
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
+
+
+def _organization_id(user: dict[str, Any]) -> str:
+    organization_id = str(user.get("organization_id") or "").strip()
+    if not organization_id:
+        raise HTTPException(status_code=401, detail="Phiên đăng nhập thiếu tổ chức")
+    return organization_id
 
 
 def _build_filters(
@@ -37,11 +44,11 @@ async def attendance_report(
     end_date: str | None = None,
     employee_id: str | None = None,
     status: str | None = None,
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     filters = _build_filters(start_date, end_date, employee_id, status)
-    records = await repository.list_attendance(filters)
+    records = await repository.list_attendance(filters, _organization_id(current_user))
     return {"success": True, "records": records, "attendance": records}
 
 
@@ -51,11 +58,11 @@ async def online_attendance_report(
     end_date: str | None = None,
     employee_id: str | None = None,
     status: str | None = None,
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     filters = _build_filters(start_date, end_date, employee_id, status)
-    records = await repository.list_attendance(filters)
+    records = await repository.list_attendance(filters, _organization_id(current_user))
     return {"success": True, "records": records}
 
 
@@ -65,11 +72,11 @@ async def export_attendance(
     end_date: str | None = None,
     employee_id: str | None = None,
     status: str | None = None,
-    _: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> Response:
     filters = _build_filters(start_date, end_date, employee_id, status)
-    records = await repository.list_attendance(filters)
+    records = await repository.list_attendance(filters, _organization_id(current_user))
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["id", "employee_id", "employee_name", "camera_id", "camera_name", "attendance_type", "status", "captured_at", "confidence"])

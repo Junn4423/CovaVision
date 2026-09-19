@@ -22,13 +22,7 @@ function recognize(path, payload, options = {}) {
 }
 
 export const attendanceApi = {
-  checkAttendance: (employeeId, location = null, _attendanceType = 'auto', options = null) => (
-    request('/api/v1/attendance', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ employee_id: employeeId, location, attendance_type: 'auto', ...(options || {}) }),
-    })
-  ),
+  checkAttendance: async () => ({ success: false, message: 'Chấm công cần ảnh nhận diện khuôn mặt.' }),
 
   attendanceImage: formData => recognize('/api/v1/attendance/recognize', formData),
   attendanceImageBase64: data => recognize('/api/v1/attendance/recognize', data),
