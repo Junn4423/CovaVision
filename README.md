@@ -12,6 +12,34 @@ Kiến trúc mục tiêu:
 
 Hai source cũ tại `chamcong_mobile` và `ChamCong_KhuonMat` chỉ là nguồn tham chiếu; project mới không dùng remote, token, bảng hoặc workflow SOF/ERP của chúng.
 
+## Cài và chạy tự động sau khi clone
+
+Trên macOS có Homebrew MySQL, chạy từ thư mục project:
+
+```bash
+chmod +x scripts/*.sh
+COVAVISION_BOOTSTRAP_USERNAME=hrm.pro1 \
+COVAVISION_BOOTSTRAP_PASSWORD='your-password' \
+./scripts/setup_local.sh
+./scripts/start_project.sh
+```
+
+`setup_local.sh` tạo virtualenv, cài backend/vision, cài Electron, bật MySQL
+`mysql@8.4` nếu có, tạo database/user theo `DATABASE_URL`, generate Prisma và
+push schema. Nếu đã có tài khoản admin thì bỏ qua hai biến bootstrap. Script không
+ghi mật khẩu vào source hoặc Git.
+
+```bash
+./scripts/stop_project.sh             # dừng backend và Electron, giữ MySQL
+./scripts/stop_project.sh --database  # chỉ dùng khi muốn dừng cả MySQL Homebrew
+```
+
+Nếu đã cài bản Electron, có thể chạy backend rồi mở app cài sẵn:
+
+```bash
+COVAVISION_DESKTOP_MODE=installed ./scripts/start_project.sh
+```
+
 ## Chạy backend tối thiểu
 
 ```bash

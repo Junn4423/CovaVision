@@ -19,6 +19,7 @@ venv/
 data/
 backend/generated/
 prisma/migrations/
+.runtime/
 
 # JavaScript / React Native / Electron
 node_modules/
