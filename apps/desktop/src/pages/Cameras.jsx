@@ -100,6 +100,7 @@ export default function Cameras() {
   const [cameraForm, setCameraForm] = useState(createEmptyCamera())
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [discoveryOpen, setDiscoveryOpen] = useState(false)
 
   const selectedCamera = useMemo(
     () => cameras.find(item => item.id === selectedCameraId) || null,
@@ -230,10 +231,32 @@ export default function Cameras() {
     setSaving(false)
   }
 
+  async function handleDiscoveredSave(discoveryForm) {
+    setSaving(true)
+    try {
+      const freshCamera = createEmptyCamera()
+      freshCamera.name = discoveryForm.name
+      const res = await api.saveCamera({
+        ...toCameraPayload(freshCamera),
+        discovery_id: discoveryForm.id,
+        username: discoveryForm.username,
+        password: discoveryForm.password,
+        stream_preset: discoveryForm.preset,
+      })
+      if (!res.success) throw new Error(res.message || 'Không lưu được camera đã phát hiện')
+      setDiscoveryOpen(false)
+      await loadCameras(res.camera?.id || '')
+    } catch (error) {
+      window.alert(error?.message || 'Không thể lưu camera đã phát hiện')
+    }
+    setSaving(false)
+  }
+
   const browserCameraSelected = isBrowserCameraType(cameraForm.camera_type)
 
   return (
-    <div className="grid xl:grid-cols-[0.9fr_1.1fr] gap-4 lg:gap-6">
+    <>
+      <div className="grid xl:grid-cols-[0.9fr_1.1fr] gap-4 lg:gap-6">
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
         <div className="px-4 sm:px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
@@ -242,12 +265,20 @@ export default function Cameras() {
               Cấu hình và kiểm tra kết nối camera RTSP, camera nội bộ LAN.
             </p>
           </div>
-          <button
-            onClick={handleCreateNew}
-            className="w-full sm:w-auto px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-colors shadow-sm"
-          >
-            Tạo mới
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setDiscoveryOpen(true)}
+              className="w-full sm:w-auto px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-200 transition-colors"
+            >
+              Quét LAN
+            </button>
+            <button
+              onClick={handleCreateNew}
+              className="w-full sm:w-auto px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-colors shadow-sm"
+            >
+              Tạo mới
+            </button>
+          </div>
         </div>
 
         <div className="divide-y divide-slate-100">
@@ -499,6 +530,149 @@ export default function Cameras() {
           >
             Xóa camera
           </button>
+        </div>
+      </div>
+      </div>
+      <LanDiscoveryModal
+        open={discoveryOpen}
+        saving={saving}
+        onClose={() => setDiscoveryOpen(false)}
+        onSave={handleDiscoveredSave}
+      />
+    </>
+  )
+}
+
+function LanDiscoveryModal({ open, saving, onClose, onSave }) {
+  const [cameras, setCameras] = useState([])
+  const [selected, setSelected] = useState(null)
+  const [subnetBase, setSubnetBase] = useState('')
+  const [deepScan, setDeepScan] = useState(false)
+  const [username, setUsername] = useState('admin')
+  const [password, setPassword] = useState('')
+  const [preset, setPreset] = useState('main')
+  const [name, setName] = useState('')
+  const [scanning, setScanning] = useState(false)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    if (open) {
+      setCameras([])
+      setSelected(null)
+      setMessage('')
+      setName('')
+      setPassword('')
+      setPreset('main')
+    }
+  }, [open])
+
+  async function scan() {
+    setScanning(true)
+    setMessage('Đang gửi ONVIF WS-Discovery vào mạng LAN...')
+    try {
+      const response = await api.discoverCameras({
+        timeout_ms: 3500,
+        subnet_base: subnetBase.trim() || undefined,
+        enable_subnet_fallback: deepScan,
+      })
+      if (!response.success) throw new Error(response.message || 'Không quét được camera')
+      const rows = Array.isArray(response.cameras) ? response.cameras : []
+      setCameras(rows)
+      setSelected(rows[0] || null)
+      setName(rows[0]?.name || '')
+      setMessage(response.message || `Đã tìm thấy ${rows.length} camera.`)
+    } catch (error) {
+      setMessage(error?.message || 'Không thể quét camera trong LAN.')
+    }
+    setScanning(false)
+  }
+
+  function choose(camera) {
+    setSelected(camera)
+    setName(camera.name || '')
+  }
+
+  if (!open) return null
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
+      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-xl">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800">Quét camera trong LAN</h2>
+            <p className="text-sm text-slate-500 mt-1">ONVIF chạy nhanh trước; subnet fallback chỉ bật khi cần.</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-xl" aria-label="Đóng">×</button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="grid sm:grid-cols-[1fr_auto] gap-3 items-end">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Subnet fallback (tuỳ chọn)</label>
+              <input
+                value={subnetBase}
+                onChange={event => setSubnetBase(event.target.value)}
+                placeholder="Ví dụ: 192.168.1 hoặc 192.168.1.0/24"
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm"
+              />
+            </div>
+            <button
+              onClick={scan}
+              disabled={scanning || saving}
+              className="px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+            >
+              {scanning ? 'Đang quét...' : 'Quét nhanh'}
+            </button>
+          </div>
+          <label className="inline-flex items-center gap-2 text-sm text-slate-600">
+            <input type="checkbox" checked={deepScan} onChange={event => setDeepScan(event.target.checked)} />
+            Quét bổ sung toàn bộ subnet /24 (chậm hơn)
+          </label>
+
+          {message ? <div className="rounded-xl bg-blue-50 text-blue-700 px-3 py-2 text-sm">{message}</div> : null}
+
+          <div className="space-y-2">
+            {cameras.map(camera => (
+              <button
+                key={camera.id}
+                onClick={() => choose(camera)}
+                className={`w-full text-left px-4 py-3 rounded-xl border transition-colors ${selected?.id === camera.id ? 'border-primary-500 bg-primary-50' : 'border-slate-200 hover:bg-slate-50'}`}
+              >
+                <div className="flex justify-between gap-3">
+                  <span className="font-semibold text-slate-800">{camera.name}</span>
+                  <span className="text-xs text-slate-500">{camera.discovery_method === 'onvif' ? 'ONVIF' : 'Subnet'}</span>
+                </div>
+                <p className="text-sm text-slate-500 mt-1">{camera.brand} · {camera.model}</p>
+              </button>
+            ))}
+            {!scanning && !cameras.length ? <p className="text-sm text-slate-400 text-center py-4">Chưa có kết quả. Bấm “Quét nhanh” để tìm camera.</p> : null}
+          </div>
+
+          {selected ? (
+            <div className="border-t border-slate-100 pt-4 space-y-3">
+              <h3 className="text-sm font-semibold text-slate-800">Thông tin kết nối camera</h3>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <input value={name} onChange={event => setName(event.target.value)} placeholder="Tên camera" className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm" />
+                <input value={username} onChange={event => setUsername(event.target.value)} placeholder="Username camera" className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm" />
+                <input type="password" value={password} onChange={event => setPassword(event.target.value)} placeholder="Password camera" className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm" />
+                <select value={preset} onChange={event => setPreset(event.target.value)} className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white">
+                  <option value="main">Luồng chính</option>
+                  <option value="sub">Luồng phụ (nhẹ hơn)</option>
+                </select>
+              </div>
+              <p className="text-xs text-slate-500">RTSP URL, IP và mật khẩu chỉ được gửi vào backend để lưu; không hiển thị trong giao diện.</p>
+              <div className="flex justify-end gap-2 pt-2">
+                <button onClick={onClose} className="px-4 py-2.5 text-sm font-semibold text-slate-600">Huỷ</button>
+                <button
+                  onClick={() => onSave({ id: selected.id, name: name.trim() || selected.name, username, password, preset })}
+                  disabled={saving || !name.trim()}
+                  className="px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+                >
+                  {saving ? 'Đang lưu...' : 'Lưu camera'}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

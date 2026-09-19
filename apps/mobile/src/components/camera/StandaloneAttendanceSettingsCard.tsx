@@ -2,6 +2,7 @@ import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {ActivityIndicator, Pressable, StyleSheet, Switch, Text, View} from 'react-native';
 import {colors, spacing, typography} from '../../design-system';
 import {Icon} from '../Icon';
+import {CameraDiscoveryModal} from './CameraDiscoveryModal';
 import {VolumeSlider} from '../ui/VolumeSlider';
 import {
   CAMERA_SPEAKER_PROFILES,
@@ -39,6 +40,7 @@ export function StandaloneAttendanceSettingsCard({
   const [checking, setChecking] = useState(false);
   const [health, setHealth] = useState<CameraHealthResult | null>(null);
   const [message, setMessage] = useState('');
+  const [discoveryVisible, setDiscoveryVisible] = useState(false);
 
   const cameraId = String(config.cameraId || '').trim();
   const camera = useMemo(
@@ -150,6 +152,7 @@ export function StandaloneAttendanceSettingsCard({
   }
 
   return (
+    <>
     <View style={styles.card}>
       <View style={styles.header}>
         <Icon name="volume-up" size={22} color={colors.primary} />
@@ -157,6 +160,10 @@ export function StandaloneAttendanceSettingsCard({
           <Text style={styles.title}>Chấm công tự động qua camera</Text>
           <Text style={styles.muted}>Luồng camera và thông tin kết nối được xử lý tại CovaVision.</Text>
         </View>
+        <Pressable onPress={() => setDiscoveryVisible(true)} style={styles.scanButton}>
+          <Icon name="search" size={16} color={colors.primary} />
+          <Text style={styles.scanButtonText}>Quét LAN</Text>
+        </Pressable>
       </View>
 
       <Text style={styles.label}>Camera đã cấu hình</Text>
@@ -201,12 +208,21 @@ export function StandaloneAttendanceSettingsCard({
       </View>
       {message ? <Text style={styles.message}>{message}</Text> : null}
     </View>
+    <CameraDiscoveryModal
+      visible={discoveryVisible}
+      onClose={() => setDiscoveryVisible(false)}
+      onSelectCamera={cameraItem => selectCamera(cameraItem).catch(() => {})}
+      onCameraSaved={() => reload().catch(() => {})}
+    />
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   card: {backgroundColor: '#fff', borderRadius: 16, padding: spacing.lg, marginVertical: spacing.md},
   header: {flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start', marginBottom: spacing.md},
+  scanButton: {flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 7, borderRadius: 9, backgroundColor: '#eff6ff'},
+  scanButtonText: {...typography.labelSmall, color: colors.primary},
   flex: {flex: 1},
   title: {...typography.heading3, color: '#0f172a'},
   label: {...typography.label, color: '#334155', marginBottom: 6},

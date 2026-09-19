@@ -48,6 +48,9 @@ export const api: any = {
   cameraStatus: (cameraId?: string) => request(`/api/v1/cameras/status${cameraId ? `?camera_id=${encodeURIComponent(cameraId)}` : ''}`),
   cameraSnapshot: (cameraId?: string) => request(`/api/v1/cameras/snapshot${cameraId ? `?camera_id=${encodeURIComponent(cameraId)}` : ''}`),
   getCameras: () => request('/api/v1/cameras'),
+  discoverCameras: (options: Record<string, unknown> = {}) => request('/api/v1/cameras/discover', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(options),
+  }),
   saveCamera: (camera: Record<string, unknown>) => request('/api/v1/cameras', {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(camera),
   }),

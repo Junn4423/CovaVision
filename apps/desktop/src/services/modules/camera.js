@@ -15,6 +15,12 @@ export const cameraApi = {
   cameraSnapshot: cameraId => request(`/api/v1/cameras/snapshot${cameraId ? `?camera_id=${encodeURIComponent(cameraId)}` : ''}`),
 
   getCameras: () => request('/api/v1/cameras'),
+  discoverCameras: options => request('/api/v1/cameras/discover', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options || {}),
+    timeout: 20000,
+  }),
   saveCamera: camera => request('/api/v1/cameras', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -157,7 +157,10 @@ async def save_camera(
         camera_payload.pop("candidate_id", None)
         camera_payload.pop("stream_preset", None)
         camera_payload.pop("custom_rtsp_url", None)
+        requested_name = str(camera_payload.get("name") or "").strip()
         camera_payload.update(resolved)
+        if requested_name:
+            camera_payload["name"] = requested_name
     if not str(camera_payload.get("name") or "").strip():
         raise HTTPException(status_code=422, detail="Camera name is required")
     camera = await repository.save_camera(camera_payload)
