@@ -35,6 +35,15 @@ export const api: any = {
   ...serverAuthApi,
   ...faceRecognitionApi,
 
+  getBillingPlans: () => request('/api/v1/billing/plans'),
+  getBillingSummary: () => request('/api/v1/billing/me'),
+  createBillingCheckout: (planCode: string) => request('/api/v1/billing/checkout', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({plan_code: planCode}),
+  }),
+  getPaymentStatus: (orderCode: string) => request(`/api/v1/billing/payments/${encodeURIComponent(orderCode)}`),
+
   register: (formData: FormData) => formOrJson('/api/v1/employees/face', formData),
   registerBase64: (data: Record<string, unknown>) => formOrJson('/api/v1/employees/face', data),
   registerEmployee: (employeeId: string, employee?: Record<string, unknown>) => request('/api/v1/employees', {

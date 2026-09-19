@@ -15,6 +15,7 @@ type Props = {
   adminUser?: any;
   onOpenAttendance: () => void;
   onOpenEmployeeRegister: () => void;
+  onOpenBilling: () => void;
   onOpenSettings: () => void;
   onLogout: () => void;
 };
@@ -23,6 +24,7 @@ export function CovaVisionAdminHomeScreen({
   adminUser,
   onOpenAttendance,
   onOpenEmployeeRegister,
+  onOpenBilling,
   onOpenSettings,
   onLogout,
 }: Props) {
@@ -160,6 +162,13 @@ export function CovaVisionAdminHomeScreen({
             badge="Hệ thống"
             badgeColor="neutral"
             onPress={onOpenSettings}
+          />
+          <Action
+            title="Gói nhân sự & thanh toán"
+            detail="Theo dõi quota và thanh toán SePay bằng QR"
+            badge="Mới"
+            badgeColor="primary"
+            onPress={onOpenBilling}
           />
           <Action
             title="Làm mới trạng thái"

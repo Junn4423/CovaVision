@@ -16,4 +16,5 @@ export type AppScreen =
   | 'employee_register'
   | 'admin_login'
   | 'admin_home'
-  | 'admin_attendance';
+  | 'admin_attendance'
+  | 'billing';

@@ -6,6 +6,7 @@ import {ConnectionConfigScreen} from './src/screens/ConnectionConfigScreen';
 import {AdminLoginScreen} from './src/screens/native/AdminLoginScreen';
 import {AttendanceActionScreen} from './src/screens/native/AttendanceActionScreen';
 import {EmployeeRegistrationScreen} from './src/screens/native/EmployeeRegistrationScreen';
+import {BillingScreen} from './src/screens/BillingScreen';
 import {CovaVisionAdminHomeScreen} from './src/screens/CovaVisionAdminHomeScreen';
 import {api, setApiBaseUrl, setSessionToken, setUnauthorizedListener} from './src/services/api';
 import {AUTH_STORAGE_KEY, clearStoredSession} from './src/services/authSession';
@@ -87,8 +88,9 @@ export default function App() {
     <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} backgroundColor={colors.pageBackground} />
     {screen === 'manual_config' && <ConnectionConfigScreen initialConfig={config} status={health} checkingConnection={checkingConnection} savingConfig={savingConfig} onCheckConnection={checkConnection} onSaveConnection={saveConnection} onCancel={config ? () => setScreen('admin_login') : undefined} />}
     {screen === 'admin_login' && <AdminLoginScreen onBack={() => { if (config) setScreen('manual_config'); }} onLoggedIn={handleLoggedIn} />}
-    {screen === 'admin_home' && <CovaVisionAdminHomeScreen adminUser={initialAdminUser} onOpenAttendance={() => {setAttendanceBack('admin_home'); setScreen('admin_attendance');}} onOpenEmployeeRegister={() => {setEmployeeRegistrationSeed(null); setScreen('employee_register');}} onOpenSettings={() => setScreen('manual_config')} onLogout={handleLogout} />}
+    {screen === 'admin_home' && <CovaVisionAdminHomeScreen adminUser={initialAdminUser} onOpenAttendance={() => {setAttendanceBack('admin_home'); setScreen('admin_attendance');}} onOpenEmployeeRegister={() => {setEmployeeRegistrationSeed(null); setScreen('employee_register');}} onOpenBilling={() => setScreen('billing')} onOpenSettings={() => setScreen('manual_config')} onLogout={handleLogout} />}
     {screen === 'admin_attendance' && <AttendanceActionScreen adminUser={initialAdminUser} onBack={() => setScreen(attendanceBack)} />}
     {screen === 'employee_register' && <EmployeeRegistrationScreen initialEmployee={employeeRegistrationSeed} onBack={() => {setEmployeeRegistrationSeed(null); setScreen('admin_home');}} />}
+    {screen === 'billing' && <BillingScreen onBack={() => setScreen('admin_home')} />}
   </SafeAreaProvider>;
 }

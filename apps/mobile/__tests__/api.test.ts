@@ -49,4 +49,22 @@ describe('CovaVision mobile transport', () => {
       'https://api.example.com/api/v1/cameras/snapshot?camera_id=cam-front',
     );
   });
+
+  test('uses the billing contract without exposing provider credentials', async () => {
+    setApiBaseUrl('https://api.example.com');
+    setSessionToken('mobile-token');
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({success: true, payment: {order_code: 'CV123', amount_vnd: 550000}}),
+    } as Response);
+
+    await api.createBillingCheckout('standard');
+    expect(String(fetchMock.mock.calls[0][0])).toBe('https://api.example.com/api/v1/billing/checkout');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'POST',
+      headers: expect.objectContaining({Authorization: 'Bearer mobile-token'}),
+    });
+    expect(String(fetchMock.mock.calls[0][1]?.body)).toBe('{"plan_code":"standard"}');
+  });
 });

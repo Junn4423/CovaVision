@@ -169,7 +169,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: colors.card,
-    borderRadius: radii['2xl'] || 24,
+    borderRadius: radii.xl || 24,
     padding: spacing.xl,
     borderWidth: 1,
     borderColor: colors.border,
