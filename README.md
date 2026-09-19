@@ -40,6 +40,13 @@ Nếu đã cài bản Electron, có thể chạy backend rồi mở app cài s�
 COVAVISION_DESKTOP_MODE=installed ./scripts/start_project.sh
 ```
 
+## Quét camera trong LAN
+
+Desktop: vào **Quản lý camera → Quét LAN**. Mobile: mở cấu hình chấm công camera
+và bấm **Quét LAN**. Backend sẽ gửi ONVIF WS-Discovery trước; nếu camera không
+phản hồi, có thể bật fallback quét subnet `/24`. Frontend chỉ nhận mã candidate,
+tên và hãng camera; IP, RTSP URL và credential được backend giữ lại.
+
 ## Chạy backend tối thiểu
 
 ```bash
