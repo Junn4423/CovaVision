@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -15,6 +15,29 @@ router = APIRouter(prefix="/api/v1/attendance", tags=["attendance"])
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _today_start_utc() -> str:
+    """Return the start of today (UTC midnight) as ISO string."""
+    now = datetime.now(timezone.utc)
+    return now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+
+def _is_today(captured_at: Any) -> bool:
+    """Check if a captured_at timestamp is from today (UTC)."""
+    if not captured_at:
+        return False
+    try:
+        if isinstance(captured_at, str):
+            ts = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+        elif isinstance(captured_at, datetime):
+            ts = captured_at if captured_at.tzinfo else captured_at.replace(tzinfo=timezone.utc)
+        else:
+            return False
+        today = datetime.now(timezone.utc).date()
+        return ts.date() == today
+    except (ValueError, TypeError):
+        return False
 
 
 async def _manual_record(payload: dict[str, Any], repository: Repository) -> dict[str, Any]:
@@ -48,7 +71,11 @@ async def recognize_attendance(
     _: dict[str, Any] = Depends(get_current_user),
     recognition: RecognitionService = Depends(get_recognition_service),
 ) -> dict[str, Any]:
-    payload, image_bytes = await read_image_request(request)
+    # API-02: Wrap read_image_request to return 422 instead of 500 on invalid input.
+    try:
+        payload, image_bytes = await read_image_request(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
         return await recognition.recognize(
             image_bytes,
@@ -98,8 +125,10 @@ async def today_attendance(
     _: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
+    # BIZ-02: Filter records to today only.
     records = await repository.list_attendance({})
-    return {"success": True, "records": records[:100], "attendance": records[:100]}
+    today_records = [r for r in records if _is_today(r.get("captured_at"))]
+    return {"success": True, "records": today_records[:100], "attendance": today_records[:100]}
 
 
 @router.get("/recent")
@@ -116,10 +145,29 @@ async def attendance_stats(
     _: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
+    # BIZ-01: Compute stats correctly — today only counts today's records,
+    # accepted only counts accepted records.
     records = await repository.list_attendance({})
-    return {"success": True, "total": len(records), "today": len(records), "accepted": len(records)}
+    today_records = [r for r in records if _is_today(r.get("captured_at"))]
+    accepted_records = [r for r in records if str(r.get("status", "")).lower() == "accepted"]
+    return {
+        "success": True,
+        "total": len(records),
+        "today": len(today_records),
+        "accepted": len(accepted_records),
+    }
 
 
 @router.get("/{attendance_id}")
-async def attendance_status(attendance_id: str, _: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
-    return {"success": True, "id": attendance_id, "status": "accepted"}
+async def attendance_status(
+    attendance_id: str,
+    _: dict[str, Any] = Depends(get_current_user),
+    repository: Repository = Depends(get_repository),
+) -> dict[str, Any]:
+    # BIZ-08: Query the actual record from the database instead of hardcoding.
+    records = await repository.list_attendance({})
+    record = next((r for r in records if str(r.get("id", "")) == attendance_id), None)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Attendance record not found")
+    return {"success": True, **record}
+

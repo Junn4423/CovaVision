@@ -266,6 +266,19 @@ class InMemoryRepository:
         employee_id = str(filters.get("employee_id") or "").strip()
         if employee_id:
             items = [item for item in items if item.get("employee_id") == employee_id]
+        start_date = filters.get("start_date")
+        if start_date:
+            items = [item for item in items if str(item.get("captured_at", "")) >= str(start_date)]
+        end_date = filters.get("end_date")
+        if end_date:
+            # Append end of day if just a date string (YYYY-MM-DD)
+            end_limit = str(end_date)
+            if len(end_limit) == 10:
+                end_limit += "T23:59:59.999999"
+            items = [item for item in items if str(item.get("captured_at", "")) <= end_limit]
+        status = filters.get("status")
+        if status and status != "ALL":
+            items = [item for item in items if item.get("status") == status]
         return items
 
     async def get_settings(self, key: str | None = None) -> dict[str, Any]:
@@ -708,6 +721,23 @@ class PrismaRepository:
                 where={"OR": [{"id": employee_id}, {"employeeCode": employee_id}]},
             )
             where["employeeId"] = employee.id if employee else "__not_found__"
+
+        start_date = filters.get("start_date")
+        end_date = filters.get("end_date")
+        if start_date or end_date:
+            captured_at_filter: dict[str, Any] = {}
+            if start_date:
+                captured_at_filter["gte"] = str(start_date)
+            if end_date:
+                end_limit = str(end_date)
+                if len(end_limit) == 10:
+                    end_limit += "T23:59:59.999999"
+                captured_at_filter["lte"] = end_limit
+            where["capturedAt"] = captured_at_filter
+
+        status = filters.get("status")
+        if status and status != "ALL":
+            where["status"] = status
         records = await self.client.attendancerecord.find_many(
             where=where,
             order={"capturedAt": "desc"},

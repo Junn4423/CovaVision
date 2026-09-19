@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_current_user, get_repository
 from app.db.repository import Repository
@@ -18,10 +18,17 @@ async def get_settings(
     return {"success": True, "settings": await repository.get_settings()}
 
 
+def _require_admin(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    """BIZ-05: Only admins may change system settings."""
+    if user.get("role") not in {"ADMIN", "HR_MANAGER"}:
+        raise HTTPException(status_code=403, detail="Administrator permission required")
+    return user
+
+
 @router.post("/settings")
 async def save_settings(
     payload: dict[str, Any],
-    _: dict[str, Any] = Depends(get_current_user),
+    _: dict[str, Any] = Depends(_require_admin),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     return {"success": True, "settings": await repository.save_settings(payload)}
@@ -46,7 +53,7 @@ async def mobile_settings(
 @router.post("/settings/mobile")
 async def save_mobile_settings(
     payload: dict[str, Any],
-    _: dict[str, Any] = Depends(get_current_user),
+    _: dict[str, Any] = Depends(_require_admin),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     await repository.save_settings({"mobile_config": payload})
@@ -64,7 +71,7 @@ async def get_location(
 @router.post("/location")
 async def save_location(
     payload: dict[str, Any],
-    _: dict[str, Any] = Depends(get_current_user),
+    _: dict[str, Any] = Depends(_require_admin),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     await repository.save_settings({"location": payload})

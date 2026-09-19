@@ -82,10 +82,15 @@ async def register_face(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     if embedding is None:
         raise HTTPException(status_code=422, detail=error or "Không tạo được face template")
-    employee = await repository.save_employee(payload)
+    employee_id = str(payload.get("employee_id") or "").strip()
+    # BIZ-07: Only save the face template. Do not call save_employee with
+    # the partial form payload — that can overwrite existing employee data.
+    existing = await repository.get_employee(employee_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Employee not found")
     try:
         employee = await repository.save_employee_face(
-            str(employee.get("id") or payload.get("employee_id")),
+            str(existing.get("id") or employee_id),
             embedding,
             image_bytes,
         )

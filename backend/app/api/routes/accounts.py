@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_current_user, get_repository
+from app.core.config import settings
 from app.db.repository import Repository
 
 router = APIRouter(prefix="/api/v1/accounts", tags=["accounts"])
@@ -48,6 +49,9 @@ async def reset_password(
     password = str(payload.get("password") or "").strip()
     if not password:
         raise HTTPException(status_code=422, detail="password is required")
+    min_len = settings.password_min_length
+    if len(password) < min_len:
+        raise HTTPException(status_code=422, detail=f"Mật khẩu phải có ít nhất {min_len} ký tự")
     try:
         account = await repository.reset_account_password(account_id, password)
     except KeyError as exc:
