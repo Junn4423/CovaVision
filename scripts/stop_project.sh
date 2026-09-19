@@ -31,6 +31,10 @@ stop_from_file() {
     pid="$(sed -n '1p' "$pid_file")"
     if [[ "$pid" =~ ^[0-9]+$ ]]; then
       kill_tree "$pid"
+      for _ in {1..50}; do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.1
+      done
       say "Đã gửi tín hiệu dừng $label (PID $pid)."
     fi
     rm -f "$pid_file"

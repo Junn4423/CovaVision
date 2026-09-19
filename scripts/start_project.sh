@@ -18,6 +18,10 @@ fail() { printf '[CovaVision start][ERROR] %s\n' "$*" >&2; exit 1; }
 [ -x "$PROJECT_ROOT/.venv/bin/python" ] || fail "Chưa có .venv. Chạy ./scripts/setup_local.sh trước."
 [ -d "$PROJECT_ROOT/apps/desktop/node_modules" ] || fail "Chưa có Electron dependencies. Chạy ./scripts/setup_local.sh trước."
 
+if [ -f "$BACKEND_PID_FILE" ] && ! kill -0 "$(cat "$BACKEND_PID_FILE")" 2>/dev/null; then
+  rm -f "$BACKEND_PID_FILE"
+fi
+
 if [ -f "$PROJECT_ROOT/.env" ]; then
   set -a
   # shellcheck disable=SC1091

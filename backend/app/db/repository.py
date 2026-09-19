@@ -566,6 +566,7 @@ class PrismaRepository:
     async def save_camera(self, payload: dict[str, Any]) -> dict[str, Any]:
         await self._ensure_connected()
         organization = await self._default_organization()
+        from prisma import fields
 
         requested_id = str(payload.get("id") or "").strip()
         camera_id = requested_id if len(requested_id) == 36 else str(uuid4())
@@ -597,7 +598,10 @@ class PrismaRepository:
             "connectionUrl": connection_url or None,
             "username": str(payload.get("username") or "").strip() or None,
             "passwordSecret": str(payload.get("password_secret") or payload.get("password") or "").strip() or None,
-            "options": options,
+            # Prisma Python requires fields.Json for JSON input. Passing a raw
+            # dict can make the checked create branch fail and obscure the real
+            # error as a missing organizationId in the unchecked branch.
+            "options": fields.Json(options),
             "isDefault": bool(payload.get("is_default", payload.get("isDefault", False))),
             "isActive": payload.get("enabled", payload.get("is_active", True)) is not False,
             "organization": {"connect": {"id": organization.id}},
@@ -606,6 +610,8 @@ class PrismaRepository:
             data.pop("organization")
             camera = await self.client.camera.update(where={"id": camera_id}, data=data)
         else:
+            data.pop("organization", None)
+            data["organizationId"] = organization.id
             data["id"] = camera_id
             camera = await self.client.camera.create(data=data)
         return self._camera_to_dict(camera)
