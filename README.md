@@ -67,31 +67,45 @@ graph TD
 ## 🚀 Cài Đặt và Khởi Chạy Nhanh
 
 ### Yêu cầu môi trường
-- macOS 12+ hoặc Linux / Windows (WSL2)
+- macOS 12+, Linux hoặc Windows 10/11 (hỗ trợ native PowerShell/BAT và Laragon MySQL)
 - **Python**: 3.9 trở lên
 - **Node.js**: 18 trở lên & npm
-- **MySQL**: 8.0 hoặc 8.4 (khuyên dùng Homebrew MySQL trên macOS)
+- **MySQL**: 8.0 hoặc 8.4 (Laragon MySQL trên Windows, Homebrew MySQL trên macOS)
 
 ### 1. Cài đặt tự động qua Script
 
-Trên macOS/Linux:
+#### 🪟 Trên Windows:
+Bạn có thể nhấp đúp chuột vào file `.bat` hoặc chạy qua PowerShell:
+
+```powershell
+# 1. Cài đặt môi trường, dependencies và đồng bộ database MySQL (Laragon):
+.\scripts\windows\install.bat   # hoặc: .\scripts\windows\install.ps1
+
+# 2. Khởi động cả FastAPI backend và Electron Desktop App:
+.\scripts\windows\start.bat     # hoặc: .\scripts\windows\start.ps1
+
+# 3. Dừng hệ thống:
+.\scripts\windows\stop.bat      # hoặc: .\scripts\windows\stop.ps1
+```
+
+#### 🍎 Trên macOS / Linux:
 
 ```bash
-chmod +x scripts/*.sh
+chmod +x scripts/macos/*.sh scripts/*.sh
 
 # Khởi tạo môi trường ảo Python, cài đặt dependencies và thiết lập database
 COVAVISION_BOOTSTRAP_USERNAME=admin \
 COVAVISION_BOOTSTRAP_PASSWORD='MatKhauBaoMat123' \
-./scripts/setup_local.sh
+./scripts/macos/install.sh       # hoặc ./scripts/setup_local.sh
 
 # Khởi động cả FastAPI backend và Electron Desktop App
-./scripts/start_project.sh
+./scripts/macos/start.sh         # hoặc ./scripts/start_project.sh
 ```
 
 Dừng hệ thống:
 ```bash
-./scripts/stop_project.sh             # Dừng backend và Electron, giữ MySQL
-./scripts/stop_project.sh --database  # Dừng cả MySQL Homebrew service
+./scripts/macos/stop.sh             # Dừng backend và Electron, giữ MySQL
+./scripts/macos/stop.sh --database  # Dừng cả MySQL Homebrew service
 ```
 
 ---

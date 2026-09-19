@@ -9,6 +9,7 @@ function start(command, args) {
     cwd: process.cwd(),
     env: { ...process.env },
     stdio: 'inherit',
+    shell: process.platform === 'win32',
   })
   children.push(child)
   return child
