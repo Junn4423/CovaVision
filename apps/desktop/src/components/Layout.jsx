@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Outlet, useLocation } from 'react-router-dom'
-import { Activity, BarChart3, Camera, CreditCard, LogOut, Menu, Moon, ScanFace, Settings, Sun, UserRound, Users, X } from 'lucide-react'
+import { Activity, BarChart3, Building2, Camera, CreditCard, LogOut, Menu, Moon, ScanFace, Settings, Sun, UserRound, Users, X } from 'lucide-react'
 import { api, clearSessionToken, SESSION_EXPIRED_EVENT } from '../services/api'
 import { useTheme } from '../contexts/ThemeContext'
 import { ROUTES } from '../config/routes'
@@ -13,6 +13,7 @@ const navGroups = [
   ] },
   { title: 'Dữ liệu', items: [
     { to: ROUTES.employees, label: 'Nhân viên & khuôn mặt', icon: Users },
+    { to: ROUTES.departments, label: 'Phòng ban & Chức vụ', icon: Building2 },
     { to: ROUTES.reports, label: 'Báo cáo điểm danh', icon: BarChart3 },
     { to: ROUTES.accounts, label: 'Tài khoản', icon: UserRound },
   ] },

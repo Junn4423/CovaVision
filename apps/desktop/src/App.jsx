@@ -10,6 +10,7 @@ import Cameras from './pages/Cameras'
 import ManageFaces from './pages/ManageFaces'
 import Report from './pages/Report'
 import AccountManagement from './pages/AccountManagement'
+import Departments from './pages/Departments'
 import SystemSettings from './pages/SystemSettings'
 import Billing from './pages/Billing'
 import NotFound from './pages/NotFound'
@@ -34,6 +35,7 @@ export default function App() {
               <Route path={ROUTES.employees} element={<ManageFaces />} />
               <Route path={ROUTES.reports} element={<Report />} />
               <Route path={ROUTES.accounts} element={<AccountManagement />} />
+              <Route path={ROUTES.departments} element={<Departments />} />
               <Route path={ROUTES.settings} element={<SystemSettings />} />
               <Route path={ROUTES.billing} element={<Billing />} />
             </Route>
