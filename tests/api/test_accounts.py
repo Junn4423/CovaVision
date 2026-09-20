@@ -87,3 +87,70 @@ def test_account_admin_boundaries_and_validation(
         headers=staff_headers,
         json={"username": "forbidden", "password": "long-enough-password"},
     ).status_code == 403
+
+
+def test_account_employee_linkage(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    staff_headers: dict[str, str],
+) -> None:
+    # 1. Create an employee
+    emp_res = client.post(
+        "/api/v1/employees",
+        headers=admin_headers,
+        json={"employee_id": "EMP-LINK-01", "name": "Nguyễn Liên Kết", "department": "R&D"},
+    )
+    assert emp_res.status_code == 200
+
+    # 2. Create account linked to employee
+    acc_res = client.post(
+        "/api/v1/accounts",
+        headers=admin_headers,
+        json={
+            "username": "user.linked",
+            "password": "valid-password-123",
+            "role": "STAFF",
+            "employee_id": "EMP-LINK-01",
+        },
+    )
+    assert acc_res.status_code == 200
+    account = acc_res.json()["account"]
+    assert account["employee_id"] == "EMP-LINK-01"
+
+    # 3. List accounts shows employee details
+    list_res = client.get("/api/v1/accounts", headers=admin_headers)
+    assert list_res.status_code == 200
+    matched = next((a for a in list_res.json()["accounts"] if a["username"] == "user.linked"), None)
+    assert matched is not None
+    assert matched.get("employee") is not None
+    assert matched["employee"]["name"] == "Nguyễn Liên Kết"
+
+    # 4. Link / unlink via dedicated endpoint
+    missing_employee = client.post(
+        f"/api/v1/accounts/{account['id']}/link-employee",
+        headers=admin_headers,
+        json={"employee_id": "EMP-DOES-NOT-EXIST"},
+    )
+    assert missing_employee.status_code == 404
+
+    link_res = client.post(
+        f"/api/v1/accounts/{account['id']}/link-employee",
+        headers=admin_headers,
+        json={"employee_id": "EMP-LINK-01"},
+    )
+    assert link_res.status_code == 200
+
+    unlink_res = client.post(
+        f"/api/v1/accounts/{account['id']}/link-employee",
+        headers=admin_headers,
+        json={"employee_id": ""},
+    )
+    assert unlink_res.status_code == 200
+    assert unlink_res.json()["account"]["employee_id"] is None
+
+    # 5. Non-admin cannot link
+    assert client.post(
+        f"/api/v1/accounts/{account['id']}/link-employee",
+        headers=staff_headers,
+        json={"employee_id": "EMP-LINK-01"},
+    ).status_code == 403

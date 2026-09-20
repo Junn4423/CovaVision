@@ -678,36 +678,74 @@ class InMemoryRepository:
         }
 
     async def list_accounts(self, organization_id: str | None = None) -> list[dict[str, Any]]:
-        return [
-            {
+        result = []
+        for user in self.users.values():
+            if organization_id and str(user.get("organization_id") or "") != str(organization_id):
+                continue
+            acc = {
                 key: value
                 for key, value in user.items()
                 if key not in {"password_hash", "passwordHash"}
             }
-            for user in self.users.values()
-            if not organization_id or str(user.get("organization_id") or "") == str(organization_id)
-        ]
+            emp_id = acc.get("employee_id")
+            if emp_id:
+                emp = next((e for e in self.employees.values() if e.get("id") == emp_id or e.get("employee_id") == emp_id), None)
+                if emp:
+                    acc["employee"] = {
+                        "id": emp.get("id"),
+                        "name": emp.get("name"),
+                        "employee_code": emp.get("employee_id"),
+                        "department": emp.get("department"),
+                        "position": emp.get("position"),
+                    }
+            result.append(acc)
+        return result
 
     async def save_account(self, payload: dict[str, Any]) -> dict[str, Any]:
         username = str(payload.get("username") or "").strip()
+        account_id = str(payload.get("id") or payload.get("account_id") or "").strip()
+        current = {}
+        if username and username in self.users:
+            current = self.users[username]
+        elif account_id:
+            current = next((item for item in self.users.values() if item.get("id") == account_id), {})
+            if current and not username:
+                username = current.get("username", "")
+
         if not username:
             raise ValueError("username is required")
-        current = self.users.get(username, {})
+
         password = str(payload.get("password") or "").strip()
+        emp_id = payload.get("employee_id", payload.get("employeeId", current.get("employee_id")))
+        if emp_id is not None:
+            emp_id = str(emp_id).strip() or None
+
         account = {
             **current,
-            "id": current.get("id") or str(uuid4()),
+            "id": current.get("id") or account_id or str(uuid4()),
             "username": username,
             "role": str(payload.get("role") or current.get("role") or "STAFF").upper(),
-            "organization_id": str(payload.get("organization_id") or self.organization_id),
+            "organization_id": str(payload.get("organization_id") or current.get("organization_id") or self.organization_id),
             "is_active": payload.get("is_active", payload.get("isActive", current.get("is_active", True))) is not False,
+            "employee_id": emp_id,
         }
         if password:
             account["password_hash"] = hash_password(password)
         elif not account.get("password_hash"):
             raise ValueError("password is required for a new account")
         self.users[username] = account
-        return {key: value for key, value in account.items() if key != "password_hash"}
+        res = {key: value for key, value in account.items() if key != "password_hash"}
+        if emp_id:
+            emp = next((e for e in self.employees.values() if e.get("id") == emp_id or e.get("employee_id") == emp_id), None)
+            if emp:
+                res["employee"] = {
+                    "id": emp.get("id"),
+                    "name": emp.get("name"),
+                    "employee_code": emp.get("employee_id"),
+                    "department": emp.get("department"),
+                    "position": emp.get("position"),
+                }
+        return res
 
     async def reset_account_password(self, account_id: str, password: str, organization_id: str | None = None) -> dict[str, Any]:
         user = next((item for item in self.users.values() if item.get("id") == account_id or item.get("username") == account_id), None)
@@ -1091,7 +1129,11 @@ class PrismaRepository(PrismaBillingMixin):
     async def list_accounts(self, organization_id: str | None = None) -> list[dict[str, Any]]:
         await self._ensure_connected()
         where = {"organizationId": organization_id} if organization_id else None
-        accounts = await self.client.useraccount.find_many(where=where, order={"username": "asc"})
+        accounts = await self.client.useraccount.find_many(
+            where=where,
+            include={"employee": True},
+            order={"username": "asc"},
+        )
         return [self._account_to_dict(account) for account in accounts]
 
     async def save_account(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1105,9 +1147,18 @@ class PrismaRepository(PrismaBillingMixin):
         if organization is None:
             raise KeyError(requested_organization_id or "organization")
         username = str(payload.get("username") or "").strip()
+        account_id = str(payload.get("id") or payload.get("account_id") or "").strip()
+        current = None
+        if username:
+            current = await self.client.useraccount.find_unique(where={"username": username})
+        elif account_id:
+            current = await self.client.useraccount.find_unique(where={"id": account_id})
+            if current:
+                username = current.username
+
         if not username:
             raise ValueError("username is required")
-        current = await self.client.useraccount.find_unique(where={"username": username})
+
         if current is not None and current.organizationId != organization.id:
             raise ValueError("username_already_registered")
         role = str(payload.get("role") or (str(current.role) if current else "STAFF")).upper()
@@ -1119,16 +1170,27 @@ class PrismaRepository(PrismaBillingMixin):
             "role": role,
             "isActive": payload.get("is_active", payload.get("isActive", True)) is not False,
         }
+        emp_id = payload.get("employee_id", payload.get("employeeId"))
+        if emp_id is not None:
+            data["employeeId"] = str(emp_id).strip() or None
+
         if password:
             data["passwordHash"] = hash_password(password)
         if current:
-            account = await self.client.useraccount.update(where={"id": current.id}, data=data)
+            account = await self.client.useraccount.update(
+                where={"id": current.id},
+                data=data,
+                include={"employee": True},
+            )
         else:
             if not password:
                 raise ValueError("password is required for a new account")
             data["passwordHash"] = hash_password(password)
             data["organization"] = {"connect": {"id": organization.id}}
-            account = await self.client.useraccount.create(data=data)
+            account = await self.client.useraccount.create(
+                data=data,
+                include={"employee": True},
+            )
         return self._account_to_dict(account)
 
     async def reset_account_password(self, account_id: str, password: str, organization_id: str | None = None) -> dict[str, Any]:
@@ -1959,7 +2021,7 @@ class PrismaRepository(PrismaBillingMixin):
 
     @staticmethod
     def _account_to_dict(account: Any) -> dict[str, Any]:
-        return {
+        res = {
             "id": account.id,
             "username": account.username,
             "email": getattr(account, "email", None),
@@ -1967,7 +2029,18 @@ class PrismaRepository(PrismaBillingMixin):
             "organization_id": account.organizationId,
             "is_active": account.isActive,
             "email_verified": getattr(account, "emailVerifiedAt", None) is not None,
+            "employee_id": getattr(account, "employeeId", None),
         }
+        emp = getattr(account, "employee", None)
+        if emp:
+            res["employee"] = {
+                "id": emp.id,
+                "name": getattr(emp, "fullName", getattr(emp, "name", "")),
+                "employee_code": getattr(emp, "employeeCode", getattr(emp, "employee_id", "")),
+                "department": getattr(emp, "department", None),
+                "position": getattr(emp, "position", None),
+            }
+        return res
 
     @staticmethod
     def _subscription_to_dict(subscription: Any) -> dict[str, Any]:

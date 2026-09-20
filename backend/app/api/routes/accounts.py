@@ -96,3 +96,40 @@ async def set_lock(
         "details": {"target_username": account.get("username"), "is_locked": is_locked},
     })
     return {"success": True, "account": account}
+
+
+@router.post("/{account_id}/link-employee")
+async def link_account_employee(
+    account_id: str,
+    payload: dict[str, Any],
+    current_user: dict[str, Any] = Depends(require_admin),
+    repository: Repository = Depends(get_repository),
+) -> dict[str, Any]:
+    org_id = organization_id(current_user)
+    employee_id = payload.get("employee_id")
+    if employee_id is not None:
+        employee_id = str(employee_id).strip() or None
+        if employee_id:
+            emp = await repository.get_employee(employee_id, org_id)
+            if emp is None:
+                raise HTTPException(status_code=404, detail="Employee not found")
+
+    try:
+        account = await repository.save_account({
+            "id": account_id,
+            "employee_id": employee_id,
+            "organization_id": org_id,
+        })
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    await repository.create_audit_log({
+        "organization_id": org_id,
+        "user_account_id": current_user.get("uid"),
+        "action": "account.link_employee",
+        "entity_type": "account",
+        "entity_id": account.get("id") or account_id,
+        "details": {"employee_id": employee_id},
+    })
+    return {"success": True, "account": account}
+

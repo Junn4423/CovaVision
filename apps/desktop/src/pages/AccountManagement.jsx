@@ -50,10 +50,11 @@ const ROLE_CONFIG = {
 
 export default function AccountManagement() {
   const [accounts, setAccounts] = useState([])
+  const [employees, setEmployees] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('ALL')
-  const [form, setForm] = useState({ username: '', password: '', role: 'STAFF' })
+  const [form, setForm] = useState({ username: '', password: '', role: 'STAFF', employee_id: '' })
   const [submitting, setSubmitting] = useState(false)
   const [message, setMessage] = useState(null)
   const [confirmTarget, setConfirmTarget] = useState(null)
@@ -63,8 +64,17 @@ export default function AccountManagement() {
   async function load() {
     try {
       setLoading(true)
-      const response = await api.getAccounts()
-      setAccounts(Array.isArray(response?.accounts) ? response.accounts : [])
+      const [accRes, empRes] = await Promise.allSettled([
+        api.getAccounts(),
+        api.getEmployees(),
+      ])
+      if (accRes.status === 'fulfilled') {
+        setAccounts(Array.isArray(accRes.value?.accounts) ? accRes.value.accounts : [])
+      }
+      if (empRes.status === 'fulfilled') {
+        const list = empRes.value?.employees || []
+        setEmployees(Array.isArray(list) ? list : [])
+      }
     } catch (err) {
       setMessage({ type: 'error', text: err?.message || 'Không tải được danh sách tài khoản.' })
     } finally {
@@ -274,7 +284,7 @@ export default function AccountManagement() {
           </Card.Title>
 
           <form onSubmit={handleSave} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Username field */}
               <div>
                 <Input
@@ -300,9 +310,9 @@ export default function AccountManagement() {
                   type="password"
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  placeholder="Tối thiểu 6 ký tự"
+                  placeholder={isDuplicateUsername ? 'Để trống nếu không đổi' : 'Tối thiểu 6 ký tự'}
                   icon={KeyRound}
-                  required
+                  required={!isDuplicateUsername}
                 />
                 {passwordStrength.text && (
                   <p className={`text-xs mt-1 font-medium ${passwordStrength.color}`}>
@@ -326,6 +336,27 @@ export default function AccountManagement() {
                     <option value="SUPERVISOR">Giám sát viên (Theo dõi camera)</option>
                     <option value="HR_MANAGER">Quản lý nhân sự (Quản lý hồ sơ, báo cáo)</option>
                     <option value="ADMIN">Quản trị viên (Toàn quyền hệ thống)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Linked Employee field */}
+              <div>
+                <label className="block text-xs font-semibold text-[var(--cv-text-secondary)] mb-1.5">
+                  Liên kết với Nhân sự
+                </label>
+                <div className="relative">
+                  <select
+                    value={form.employee_id || ''}
+                    onChange={(e) => setForm({ ...form, employee_id: e.target.value })}
+                    className="cv-input font-medium appearance-none cursor-pointer text-xs"
+                  >
+                    <option value="">-- Không liên kết (Độc lập) --</option>
+                    {employees.map((emp) => (
+                      <option key={emp.id || emp.employee_id} value={emp.employee_id || emp.id}>
+                        {emp.name} ({emp.employee_id || 'Chưa có mã'}{emp.department ? ` · ${emp.department}` : ''})
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -443,10 +474,43 @@ export default function AccountManagement() {
                       <p className="text-xs text-[var(--cv-text-tertiary)] truncate mt-0.5">
                         {roleMeta.desc}
                       </p>
+                      {account.employee ? (
+                        <div className="flex items-center gap-1.5 mt-1 text-xs text-blue-600 dark:text-blue-400 font-medium">
+                          <UserRound className="w-3.5 h-3.5 shrink-0" />
+                          <span>Liên kết: <strong>{account.employee.name}</strong></span>
+                          <span className="text-[11px] text-[var(--cv-text-tertiary)]">
+                            ({account.employee.employee_code || account.employee.id}{account.employee.department ? ` · ${account.employee.department}` : ''})
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 mt-1 text-xs text-[var(--cv-text-tertiary)] italic">
+                          <span>Chưa liên kết hồ sơ nhân sự</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
                   <div className="flex items-center gap-3 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={UserCheck}
+                      onClick={() => {
+                        setForm({
+                          id: account.id,
+                          username: account.username,
+                          password: '',
+                          role: account.role || 'STAFF',
+                          employee_id: account.employee_id || account.employee?.employee_code || account.employee?.id || '',
+                        })
+                        setIsFormOpen(true)
+                        window.scrollTo({ top: 0, behavior: 'smooth' })
+                      }}
+                      title="Chỉnh sửa hoặc liên kết hồ sơ nhân sự"
+                    >
+                      Liên kết
+                    </Button>
+
                     <Badge
                       variant={isActive ? 'success' : 'neutral'}
                       dot

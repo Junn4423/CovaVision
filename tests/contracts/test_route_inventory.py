@@ -30,6 +30,7 @@ ROUTE_TEST_MATRIX: dict[tuple[str, str], str] = {
     ("POST", "/api/v1/accounts"): "api/test_accounts.py",
     ("POST", "/api/v1/accounts/{account_id}/password"): "api/test_accounts.py",
     ("POST", "/api/v1/accounts/{account_id}/lock"): "api/test_accounts.py",
+    ("POST", "/api/v1/accounts/{account_id}/link-employee"): "api/test_accounts.py",
     ("GET", "/api/v1/audit/logs"): "api/test_audit.py",
     ("GET", "/api/v1/employees"): "api/test_employees.py",
     ("GET", "/api/v1/employees/export"): "api/test_employees.py",
