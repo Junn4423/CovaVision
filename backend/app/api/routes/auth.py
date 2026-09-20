@@ -3,12 +3,14 @@ from __future__ import annotations
 import re
 import time
 from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 
-from app.api.deps import get_current_user, get_repository
+from app.api.deps import bearer_scheme, get_current_user, get_repository
 from app.core.config import settings
 from app.core.security import create_access_token
 from app.db.repository import Repository
@@ -68,12 +70,15 @@ def _normalize_email(value: str) -> str:
     return email
 
 
-def _issue_session(user: dict[str, Any]) -> dict[str, Any]:
+async def _issue_session(user: dict[str, Any], repository: Repository) -> dict[str, Any]:
     token = create_access_token(
         str(user["username"]),
         role=str(user.get("role", "STAFF")),
         organization_id=str(user.get("organization_id") or ""),
+        user_id=str(user["id"]),
     )
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=settings.access_token_expire_seconds)
+    await repository.create_access_session(str(user["id"]), token, expires_at)
     public_user = {key: value for key, value in user.items() if key not in {"password_hash", "passwordHash"}}
     return {
         "success": True,
@@ -100,7 +105,7 @@ async def login(
         _record_login_failure(client_ip)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email/tài khoản hoặc mật khẩu không đúng")
     _login_attempts.pop(client_ip, None)
-    return _issue_session(user)
+    return await _issue_session(user, repository)
 
 
 @router.post("/register")
@@ -120,7 +125,7 @@ async def register(
         if str(exc) == "email_already_registered":
             raise HTTPException(status_code=409, detail="Email đã được đăng ký") from exc
         raise HTTPException(status_code=422, detail="Không thể tạo tài khoản") from exc
-    return _issue_session(user)
+    return await _issue_session(user, repository)
 
 
 def _verify_google_id_token(id_token: str) -> dict[str, Any]:
@@ -158,14 +163,17 @@ async def google_login(
         user = await repository.authenticate_google(claims["email"], claims["subject"], claims["name"])
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Không thể tạo phiên Google") from exc
-    return _issue_session(user)
+    return await _issue_session(user, repository)
 
 
 @router.post("/logout")
-async def logout(_: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
-    # Note: With stateless JWT the token remains technically valid until it
-    # expires. A full server-side blacklist would be the next security
-    # improvement, but the frontend already clears the token on logout.
+async def logout(
+    _: dict[str, Any] = Depends(get_current_user),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    repository: Repository = Depends(get_repository),
+) -> dict[str, Any]:
+    if credentials is not None:
+        await repository.revoke_access_session(credentials.credentials)
     return {"success": True}
 
 

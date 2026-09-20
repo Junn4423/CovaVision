@@ -26,10 +26,15 @@ def get_recognition_service(request: Request, repository: Repository = Depends(g
 
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     if credentials is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     try:
-        return decode_access_token(credentials.credentials)
+        claims = decode_access_token(credentials.credentials)
+        user_id = str(claims.get("uid") or "").strip()
+        if not user_id or not await repository.is_access_session_active(user_id, credentials.credentials):
+            raise ValueError("inactive access session")
+        return claims
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token") from exc

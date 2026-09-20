@@ -19,12 +19,18 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 from app.billing.plans import get_plan
-from app.core.security import hash_password, verify_password
+from app.core.security import hash_access_token, hash_password, verify_password
 from app.db.billing_repository import PrismaBillingMixin
 
 
 class Repository(Protocol):
     async def authenticate(self, identifier: str, password: str) -> dict[str, Any] | None: ...
+
+    async def create_access_session(self, user_id: str, token: str, expires_at: datetime) -> None: ...
+
+    async def revoke_access_session(self, token: str) -> None: ...
+
+    async def is_access_session_active(self, user_id: str, token: str) -> bool: ...
 
     async def register_account(
         self, email: str, password: str, full_name: str, organization_name: str
@@ -155,6 +161,7 @@ class InMemoryRepository:
         }
         self.subscriptions: list[dict[str, Any]] = []
         self.payments: dict[str, dict[str, Any]] = {}
+        self.access_sessions: dict[str, dict[str, Any]] = {}
 
     def seed_user(
         self,
@@ -190,6 +197,33 @@ class InMemoryRepository:
         if not user or not user["is_active"] or not verify_password(password, user["password_hash"]):
             return None
         return {key: value for key, value in user.items() if key != "password_hash"}
+
+    async def create_access_session(self, user_id: str, token: str, expires_at: datetime) -> None:
+        self.access_sessions[hash_access_token(token)] = {
+            "user_id": str(user_id),
+            "expires_at": expires_at,
+            "revoked_at": None,
+        }
+
+    async def revoke_access_session(self, token: str) -> None:
+        session = self.access_sessions.get(hash_access_token(token))
+        if session is not None:
+            session["revoked_at"] = _now()
+
+    async def is_access_session_active(self, user_id: str, token: str) -> bool:
+        session = self.access_sessions.get(hash_access_token(token))
+        if session is None or session.get("revoked_at") is not None:
+            return False
+        expires_at = session.get("expires_at")
+        if isinstance(expires_at, datetime):
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at <= _now():
+                return False
+        if str(session.get("user_id")) != str(user_id):
+            return False
+        user = next((item for item in self.users.values() if str(item.get("id")) == str(user_id)), None)
+        return bool(user and user.get("is_active", False))
 
     async def register_account(self, email: str, password: str, full_name: str, organization_name: str) -> dict[str, Any]:
         normalized = email.strip().lower()
@@ -586,6 +620,42 @@ class PrismaRepository(PrismaBillingMixin):
             "organization_id": user.organizationId,
             "is_active": user.isActive,
         }
+
+    async def create_access_session(self, user_id: str, token: str, expires_at: datetime) -> None:
+        await self._ensure_connected()
+        await self.client.refreshtoken.create(
+            data={
+                "userAccountId": str(user_id),
+                "tokenHash": hash_access_token(token),
+                "expiresAt": expires_at,
+            },
+        )
+
+    async def revoke_access_session(self, token: str) -> None:
+        await self._ensure_connected()
+        session = await self.client.refreshtoken.find_unique(
+            where={"tokenHash": hash_access_token(token)},
+        )
+        if session is not None and session.revokedAt is None:
+            await self.client.refreshtoken.update(
+                where={"id": session.id},
+                data={"revokedAt": _now()},
+            )
+
+    async def is_access_session_active(self, user_id: str, token: str) -> bool:
+        await self._ensure_connected()
+        session = await self.client.refreshtoken.find_unique(
+            where={"tokenHash": hash_access_token(token)},
+        )
+        if session is None or session.userAccountId != str(user_id) or session.revokedAt is not None:
+            return False
+        expires_at = session.expiresAt
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= _now():
+            return False
+        user = await self.client.useraccount.find_unique(where={"id": str(user_id)})
+        return bool(user and user.isActive)
 
     async def list_accounts(self, organization_id: str | None = None) -> list[dict[str, Any]]:
         await self._ensure_connected()

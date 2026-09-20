@@ -60,6 +60,7 @@ def create_access_token(
     *,
     role: str,
     organization_id: Optional[str] = None,
+    user_id: Optional[str] = None,
     expires_in_seconds: Optional[int] = None,
 ) -> str:
     now = int(time.time())
@@ -68,6 +69,8 @@ def create_access_token(
     claims: dict[str, Any] = {"sub": subject, "role": role, "iat": now, "exp": expires}
     if organization_id:
         claims["organization_id"] = organization_id
+    if user_id:
+        claims["uid"] = user_id
     payload = _urlsafe_encode(json.dumps(claims, separators=(",", ":")).encode())
     unsigned = f"{header}.{payload}".encode("ascii")
     signature = hmac.new(settings.jwt_secret.encode("utf-8"), unsigned, hashlib.sha256).digest()
@@ -90,3 +93,9 @@ def decode_access_token(token: str) -> dict[str, Any]:
         return payload
     except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
         raise ValueError("invalid access token") from exc
+
+
+def hash_access_token(token: str) -> str:
+    """Return the database-safe digest used to persist a server-side session."""
+
+    return hashlib.sha256(str(token).encode("utf-8")).hexdigest()
