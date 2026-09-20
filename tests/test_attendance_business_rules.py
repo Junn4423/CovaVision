@@ -44,3 +44,37 @@ def test_repeated_face_scans_within_cooldown_are_idempotent() -> None:
         assert len(repository.attendance) == 1
 
     asyncio.run(scenario())
+
+
+def test_client_event_id_makes_retries_idempotent_even_after_cooldown() -> None:
+    async def scenario() -> None:
+        repository = InMemoryRepository()
+        repository.seed_user("client-event", "test-password", role="ADMIN")
+        await repository.save_employee(
+            {
+                "employee_id": "EMP-CLIENT-EVENT",
+                "name": "Client Event User",
+                "embedding": [1.0, 0.0],
+            }
+        )
+        service = RecognitionService(repository, recognizer_factory=_FakeRecognizer)
+
+        first = await service.recognize(
+            b"image",
+            client_event_id="mobile-event-1",
+            cooldown_seconds=0,
+        )
+        retry = await service.recognize(
+            b"image",
+            client_event_id="mobile-event-1",
+            cooldown_seconds=0,
+        )
+
+        assert first["success"] is True
+        assert retry["success"] is True
+        assert retry["duplicate"] is True
+        assert retry["idempotency_duplicate"] is True
+        assert retry["record"]["id"] == first["record"]["id"]
+        assert len(repository.attendance) == 1
+
+    asyncio.run(scenario())

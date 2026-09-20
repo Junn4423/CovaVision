@@ -192,6 +192,7 @@ class RecognitionService:
         include_preview: bool = False,
         similarity_threshold: float | None = None,
         cooldown_seconds: Any = None,
+        client_event_id: str | None = None,
         organization_id: str | None = None,
     ) -> dict[str, Any]:
         result = await self.detect(
@@ -208,8 +209,34 @@ class RecognitionService:
             }
 
         user = result["detected_user"]
+        normalized_client_event_id = str(client_event_id or "").strip()
+        if len(normalized_client_event_id) > 191:
+            raise ValueError("client_event_id vượt quá 191 ký tự")
         async with self._get_attendance_lock():
             captured_at = datetime.now(timezone.utc)
+            if normalized_client_event_id:
+                existing = await self.repository.find_attendance_by_client_event(
+                    normalized_client_event_id,
+                    organization_id,
+                )
+                if existing is not None:
+                    if str(existing.get("employee_id") or "") != str(user.get("employee_id") or ""):
+                        raise ValueError("client_event_id đã được dùng cho nhân viên khác")
+                    response = {
+                        **result,
+                        "success": True,
+                        "duplicate": True,
+                        "idempotency_duplicate": True,
+                        "message": "Yêu cầu chấm công đã được ghi nhận trước đó.",
+                        "user": user,
+                        "record": existing,
+                        "attendance": existing,
+                    }
+                    if include_preview:
+                        response["preview_image_base64"] = (
+                            "data:image/jpeg;base64," + base64.b64encode(image_bytes).decode("ascii")
+                        )
+                    return response
             cooldown = settings.attendance_cooldown_seconds if cooldown_seconds is None else cooldown_seconds
             try:
                 cooldown_value = max(0.0, float(cooldown))
@@ -246,12 +273,14 @@ class RecognitionService:
                 "captured_at": captured_at.isoformat(),
                 "confidence": result["similarity"],
                 "location": location,
+                "client_event_id": normalized_client_event_id or None,
                 "organization_id": organization_id,
             })
         response = {
             **result,
             "success": True,
             "duplicate": False,
+            "idempotency_duplicate": False,
             "message": "Quét mặt thành công, đã ghi nhận.",
             "user": user,
             "record": record,

@@ -102,6 +102,12 @@ class Repository(Protocol):
 
     async def create_attendance(self, payload: dict[str, Any], organization_id: str | None = None) -> dict[str, Any]: ...
 
+    async def find_attendance_by_client_event(
+        self,
+        client_event_id: str,
+        organization_id: str | None = None,
+    ) -> dict[str, Any] | None: ...
+
     async def find_recent_attendance(
         self,
         employee_id: str,
@@ -613,6 +619,23 @@ class InMemoryRepository:
         }
         self.attendance.append(record)
         return record
+
+    async def find_attendance_by_client_event(
+        self,
+        client_event_id: str,
+        organization_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        target_event_id = str(client_event_id or "").strip()
+        target_organization_id = str(organization_id or "").strip()
+        if not target_event_id:
+            return None
+        for record in reversed(self.attendance):
+            if str(record.get("client_event_id") or "") != target_event_id:
+                continue
+            if target_organization_id and str(record.get("organization_id") or "") != target_organization_id:
+                continue
+            return record
+        return None
 
     async def find_recent_attendance(
         self,
@@ -1255,11 +1278,32 @@ class PrismaRepository(PrismaBillingMixin):
             data["employeeId"] = employee.id
         if camera:
             data["cameraId"] = camera.id
+        client_event_id = str(payload.get("client_event_id") or payload.get("clientEventId") or "").strip()
+        if client_event_id:
+            data["clientEventId"] = client_event_id[:191]
         record = await self.client.attendancerecord.create(
             data=data,
             include={"employee": True, "camera": True},
         )
         return self._attendance_to_dict(record)
+
+    async def find_attendance_by_client_event(
+        self,
+        client_event_id: str,
+        organization_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        await self._ensure_connected()
+        event_id = str(client_event_id or "").strip()
+        if not event_id:
+            return None
+        where: dict[str, Any] = {"clientEventId": event_id}
+        if organization_id:
+            where["organizationId"] = organization_id
+        record = await self.client.attendancerecord.find_first(
+            where=where,
+            include={"employee": True, "camera": True},
+        )
+        return self._attendance_to_dict(record) if record else None
 
     async def find_recent_attendance(
         self,
@@ -1617,6 +1661,7 @@ class PrismaRepository(PrismaBillingMixin):
             "status": str(record.status).lower(),
             "captured_at": record.capturedAt.isoformat(),
             "confidence": float(record.confidence) if record.confidence is not None else None,
+            "client_event_id": getattr(record, "clientEventId", None),
         }
 
     @staticmethod

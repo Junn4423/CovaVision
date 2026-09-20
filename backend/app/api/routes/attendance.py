@@ -91,6 +91,7 @@ async def recognize_attendance(
             camera_id=str(payload.get("camera_id") or "").strip() or None,
             location=payload.get("location"),
             include_preview=bool(payload.get("include_preview", False)),
+            client_event_id=str(payload.get("client_event_id") or payload.get("clientEventId") or "").strip() or None,
             organization_id=_organization_id(current_user),
         )
     except RecognitionUnavailable as exc:

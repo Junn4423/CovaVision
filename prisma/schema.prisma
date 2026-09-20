@@ -297,6 +297,7 @@ model AttendanceRecord {
   locationAccuracy Decimal?         @db.Decimal(10, 2)
   deviceId        String?           @db.VarChar(255)
   rejectionReason String?            @db.VarChar(500)
+  clientEventId   String?            @db.VarChar(191)
   metadata        Json?
   createdAt       DateTime          @default(now())
   organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
@@ -307,6 +308,7 @@ model AttendanceRecord {
   @@index([organizationId, capturedAt])
   @@index([employeeId, capturedAt])
   @@index([cameraId, capturedAt])
+  @@unique([organizationId, clientEventId])
   @@map("attendance_records")
 }
 
