@@ -192,6 +192,15 @@ npm run build:electron
 
 The self-contained desktop release starts the bundled Python backend on `127.0.0.1:8000` and includes the Prisma schema plus InsightFace model. Use `npm run build:electron:no-backend` only when an external backend is intentionally configured.
 
+Before a schema update or deployment, create a MySQL backup with
+`scripts\\windows\\backup.ps1` or `scripts/macos/backup.sh`. The database
+password is passed through `MYSQL_PWD` and never appears in the command line.
+For a migration-aware deployment, use `scripts\\windows\\migrate.ps1` or
+`scripts/macos/migrate.sh`; it creates the backup first and then runs
+`prisma migrate deploy`. Existing databases created only with `db push` must be
+baselined once with `prisma migrate resolve --applied 20260920120000_initial`
+after verifying that their schema matches the tracked baseline.
+
 ### Mobile App (Android APK)
 ```bash
 cd apps/mobile

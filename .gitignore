@@ -17,8 +17,8 @@ venv/
 
 # Runtime data and generated clients
 data/
+backups/
 backend/generated/
-prisma/migrations/
 .runtime/
 
 # JavaScript / React Native / Electron
