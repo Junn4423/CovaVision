@@ -6,6 +6,7 @@ export const ROUTES = Object.freeze({
   employees: '/admin/employees',
   reports: '/admin/reports',
   accounts: '/admin/accounts',
+  departments: '/admin/departments',
   settings: '/admin/settings',
   billing: '/admin/billing',
 })

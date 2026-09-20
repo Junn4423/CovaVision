@@ -16,6 +16,7 @@ import { employeeApi } from './modules/employee'
 import { locationApi } from './modules/location'
 import { systemSettingsApi } from './modules/systemSettings'
 import { billingApi } from './modules/billing'
+import { departmentApi } from './modules/department'
 
 export {
   clearAuthState,
@@ -36,6 +37,7 @@ export const api = {
   ...cameraApi,
   ...attendanceApi,
   ...employeeApi,
+  ...departmentApi,
   ...locationApi,
   ...systemSettingsApi,
   ...billingApi,

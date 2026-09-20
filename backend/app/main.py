@@ -7,6 +7,7 @@ from app.api.routes.attendance import router as attendance_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.billing import router as billing_router
 from app.api.routes.cameras import router as cameras_router
+from app.api.routes.departments import departments_router, positions_router
 from app.api.routes.employees import router as employees_router
 from app.api.routes.health import router as health_router
 from app.api.routes.reports import router as reports_router
@@ -43,6 +44,8 @@ def create_app(repository=None, camera_manager=None, camera_discovery=None) -> F
     application.include_router(accounts_router)
     application.include_router(audit_router)
     application.include_router(employees_router)
+    application.include_router(departments_router)
+    application.include_router(positions_router)
     application.include_router(cameras_router)
     application.include_router(attendance_router)
     application.include_router(settings_router)
