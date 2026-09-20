@@ -81,6 +81,7 @@ class RecognitionService:
         max_faces: int = 3,
         similarity_threshold: float | None = None,
         organization_id: str | None = None,
+        anti_spoof_enabled: bool | None = None,
     ) -> dict[str, Any]:
         if not image_bytes:
             raise ValueError("Ảnh chấm công không được để trống")
@@ -88,6 +89,8 @@ class RecognitionService:
             raise ValueError("Ảnh chấm công vượt quá giới hạn 8 MB")
 
         recognizer = self._get_recognizer()
+        if anti_spoof_enabled is None:
+            anti_spoof_enabled = await self._anti_spoof_entitled(organization_id)
         decoder = getattr(recognizer, "_decode_image_bytes", None)
         if decoder is None:
             raise RecognitionUnavailable("Recognition engine thiếu bộ giải mã ảnh")
@@ -121,9 +124,13 @@ class RecognitionService:
         detections = []
         for raw_face in list(raw_faces or [])[: max(1, min(int(max_faces), 10))]:
             bbox = [int(float(value)) for value in list(raw_face.get("bbox", []))[:4]]
+            is_real_face = True
+            liveness_score = 1.0
+            if anti_spoof_enabled:
+                is_real_face, liveness_score = self._check_liveness(recognizer, frame, bbox)
             embedding = raw_face.get("embedding")
             match = None
-            if embedding is not None:
+            if is_real_face and embedding is not None:
                 try:
                     match = find_best_match(self._as_list(embedding), candidates, threshold=threshold)
                 except ValueError:
@@ -136,6 +143,9 @@ class RecognitionService:
                 "matched": match is not None,
                 "similarity": similarity,
                 "similarity_percent": round(similarity * 100, 2),
+                "liveness_score": liveness_score,
+                "is_real_face": is_real_face,
+                "spoofed": anti_spoof_enabled and not is_real_face,
             }
             if match:
                 detection.update({
@@ -166,6 +176,8 @@ class RecognitionService:
             "detection_bbox": matched_detection["bbox"] if matched_detection else (detections[0]["bbox"] if detections else None),
             "similarity": matched_detection["similarity"] if matched_detection else 0.0,
             "similarity_percent": matched_detection["similarity_percent"] if matched_detection else 0.0,
+            "anti_spoof_enabled": bool(anti_spoof_enabled),
+            "spoof_detected": any(item.get("spoofed") for item in detections),
             "frame_width": width,
             "frame_height": height,
         }
@@ -250,6 +262,40 @@ class RecognitionService:
                 "data:image/jpeg;base64," + base64.b64encode(image_bytes).decode("ascii")
             )
         return response
+
+    async def _anti_spoof_entitled(self, organization_id: str | None) -> bool:
+        if not organization_id:
+            return False
+        try:
+            summary = await self.repository.get_billing_summary(organization_id)
+            plan = summary.get("plan") or {}
+            return bool(plan.get("anti_spoofing", False))
+        except Exception:
+            # An entitlement lookup failure must not silently enable a paid
+            # biometric control or make Standard behave like Pro.
+            return False
+
+    @staticmethod
+    def _check_liveness(recognizer: Any, frame: Any, bbox: list[int]) -> tuple[bool, float]:
+        engine = getattr(recognizer, "engine", None)
+        available = getattr(engine, "anti_spoofing_available", None)
+        if available is False:
+            return False, 0.0
+        checker = getattr(engine, "check_anti_spoofing", None)
+        if not callable(checker) or len(bbox) < 4:
+            return False, 0.0
+        try:
+            x1, y1, x2, y2 = bbox[:4]
+            result = checker(frame, [x1, y1, max(0, x2 - x1), max(0, y2 - y1)])
+            if isinstance(result, (tuple, list)):
+                is_real = bool(result[0])
+                score = float(result[1]) if len(result) > 1 else (1.0 if is_real else 0.0)
+            else:
+                is_real = bool(result)
+                score = 1.0 if is_real else 0.0
+            return is_real, max(0.0, min(1.0, score))
+        except Exception:
+            return False, 0.0
 
     def _get_attendance_lock(self) -> asyncio.Lock:
         # Construct the lock inside the running event loop. This keeps the

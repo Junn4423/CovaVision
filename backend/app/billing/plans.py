@@ -19,6 +19,7 @@ class SubscriptionPlan:
     monthly_price_vnd: int
     duration_days: int | None = 30
     contact_only: bool = False
+    anti_spoofing: bool = False
 
     def public_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -46,6 +47,7 @@ PLANS: tuple[SubscriptionPlan, ...] = (
         max_employees=50,
         max_face_templates=50,
         monthly_price_vnd=1_950_000,
+        anti_spoofing=True,
     ),
     SubscriptionPlan(
         code="vip",
@@ -53,6 +55,7 @@ PLANS: tuple[SubscriptionPlan, ...] = (
         max_employees=150,
         max_face_templates=150,
         monthly_price_vnd=4_990_000,
+        anti_spoofing=True,
     ),
     SubscriptionPlan(
         code="business",
@@ -62,6 +65,7 @@ PLANS: tuple[SubscriptionPlan, ...] = (
         monthly_price_vnd=0,
         duration_days=None,
         contact_only=True,
+        anti_spoofing=True,
     ),
 )
 

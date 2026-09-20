@@ -400,6 +400,7 @@ class InsightFaceWrapper:
             _log_init('  OpenVINOExecutionProvider unavailable, using CPUExecutionProvider')
 
         self.anti_spoofing = AntiSpoofingWrapper()
+        self.anti_spoofing_available = self.anti_spoofing.backend is not None
         self._lock = threading.RLock()
 
     def detect_and_encode(self, frame):
