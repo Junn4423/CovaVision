@@ -390,11 +390,18 @@ class InMemoryRepository:
         return payment
 
     async def get_employee(self, employee_id: str, organization_id: str | None = None) -> dict[str, Any] | None:
-        return self.employees.get(employee_id)
+        employee = self.employees.get(employee_id)
+        if employee is None:
+            return None
+        if organization_id and str(employee.get("organization_id") or "") != str(organization_id):
+            return None
+        return employee
 
     async def list_employees(self, query: str = "", organization_id: str | None = None) -> list[dict[str, Any]]:
         normalized = query.strip().lower()
         items = list(self.employees.values())
+        if organization_id:
+            items = [item for item in items if str(item.get("organization_id") or "") == str(organization_id)]
         if normalized:
             items = [
                 item for item in items
@@ -411,7 +418,7 @@ class InMemoryRepository:
             **payload,
             "id": employee_id,
             "employee_id": employee_id,
-            "organization_id": self.organization_id,
+            "organization_id": str(payload.get("organization_id") or self.organization_id),
             "updated_at": _now().isoformat(),
         }
         employee.setdefault("name", employee_id)
@@ -430,13 +437,14 @@ class InMemoryRepository:
                 "embedding": item.get("embedding") if item.get("embedding") is not None else item.get("face_encoding"),
             }
             for item in self.employees.values()
-            if item.get("status", "ACTIVE") == "ACTIVE"
+            if not organization_id or str(item.get("organization_id") or "") == str(organization_id)
+            and item.get("status", "ACTIVE") == "ACTIVE"
             and (item.get("embedding") is not None or item.get("face_encoding") is not None)
         ]
 
     async def save_employee_face(self, employee_id: str, embedding: Any, image_bytes: bytes | None = None, organization_id: str | None = None) -> dict[str, Any]:
         employee = self.employees.get(employee_id)
-        if employee is None:
+        if employee is None or (organization_id and str(employee.get("organization_id") or "") != str(organization_id)):
             raise KeyError(employee_id)
         employee["embedding"] = embedding.tolist() if hasattr(embedding, "tolist") else embedding
         employee["registered"] = True
@@ -451,7 +459,7 @@ class InMemoryRepository:
 
     async def clear_employee_face(self, employee_id: str, organization_id: str | None = None) -> dict[str, Any]:
         employee = self.employees.get(employee_id)
-        if employee is None:
+        if employee is None or (organization_id and str(employee.get("organization_id") or "") != str(organization_id)):
             raise KeyError(employee_id)
         employee.pop("embedding", None)
         employee.pop("face_encoding", None)
@@ -466,7 +474,7 @@ class InMemoryRepository:
 
     async def get_employee_image(self, employee_id: str, organization_id: str | None = None) -> dict[str, Any] | None:
         employee = self.employees.get(employee_id)
-        if employee is None:
+        if employee is None or (organization_id and str(employee.get("organization_id") or "") != str(organization_id)):
             return None
         return {
             "image_base64": employee.get("image_base64"),
@@ -481,6 +489,7 @@ class InMemoryRepository:
                 if key not in {"password_hash", "passwordHash"}
             }
             for user in self.users.values()
+            if not organization_id or str(user.get("organization_id") or "") == str(organization_id)
         ]
 
     async def save_account(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -494,7 +503,7 @@ class InMemoryRepository:
             "id": current.get("id") or str(uuid4()),
             "username": username,
             "role": str(payload.get("role") or current.get("role") or "STAFF").upper(),
-            "organization_id": self.organization_id,
+            "organization_id": str(payload.get("organization_id") or self.organization_id),
             "is_active": payload.get("is_active", payload.get("isActive", current.get("is_active", True))) is not False,
         }
         if password:
@@ -506,23 +515,31 @@ class InMemoryRepository:
 
     async def reset_account_password(self, account_id: str, password: str, organization_id: str | None = None) -> dict[str, Any]:
         user = next((item for item in self.users.values() if item.get("id") == account_id or item.get("username") == account_id), None)
-        if user is None:
+        if user is None or (organization_id and str(user.get("organization_id") or "") != str(organization_id)):
             raise KeyError(account_id)
         user["password_hash"] = hash_password(password)
         return {key: value for key, value in user.items() if key != "password_hash"}
 
     async def set_account_lock(self, account_id: str, is_locked: bool, organization_id: str | None = None) -> dict[str, Any]:
         user = next((item for item in self.users.values() if item.get("id") == account_id or item.get("username") == account_id), None)
-        if user is None:
+        if user is None or (organization_id and str(user.get("organization_id") or "") != str(organization_id)):
             raise KeyError(account_id)
         user["is_active"] = not is_locked
         return {key: value for key, value in user.items() if key != "password_hash"}
 
     async def list_cameras(self, organization_id: str | None = None) -> list[dict[str, Any]]:
-        return list(self.cameras.values())
+        return [
+            item for item in self.cameras.values()
+            if not organization_id or str(item.get("organization_id") or "") == str(organization_id)
+        ]
 
     async def get_camera(self, camera_id: str, organization_id: str | None = None) -> dict[str, Any] | None:
-        return self.cameras.get(camera_id)
+        camera = self.cameras.get(camera_id)
+        if camera is None:
+            return None
+        if organization_id and str(camera.get("organization_id") or "") != str(organization_id):
+            return None
+        return camera
 
     async def save_camera(self, payload: dict[str, Any]) -> dict[str, Any]:
         camera_id = str(payload.get("id") or uuid4())
@@ -540,20 +557,25 @@ class InMemoryRepository:
             **current,
             **internal_payload,
             "id": camera_id,
-            "organization_id": self.organization_id,
+            "organization_id": str(payload.get("organization_id") or self.organization_id),
             "updated_at": _now().isoformat(),
         }
         self.cameras[camera_id] = camera
         return camera
 
     async def delete_camera(self, camera_id: str, organization_id: str | None = None) -> bool:
-        return self.cameras.pop(camera_id, None) is not None
+        camera = await self.get_camera(camera_id, organization_id)
+        if camera is None:
+            return False
+        self.cameras.pop(camera_id, None)
+        return True
 
     async def create_attendance(self, payload: dict[str, Any], organization_id: str | None = None) -> dict[str, Any]:
         record = {
             "id": str(uuid4()),
             "created_at": _now().isoformat(),
             **payload,
+            "organization_id": str(organization_id or payload.get("organization_id") or self.organization_id),
             "attendance_type": "auto",
         }
         self.attendance.append(record)
@@ -581,6 +603,8 @@ class InMemoryRepository:
 
     async def list_attendance(self, filters: dict[str, Any], organization_id: str | None = None) -> list[dict[str, Any]]:
         items = list(reversed(self.attendance))
+        if organization_id:
+            items = [item for item in items if str(item.get("organization_id") or "") == str(organization_id)]
         employee_id = str(filters.get("employee_id") or "").strip()
         if employee_id:
             items = [item for item in items if item.get("employee_id") == employee_id]
