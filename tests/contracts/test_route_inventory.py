@@ -69,6 +69,8 @@ ROUTE_TEST_MATRIX: dict[tuple[str, str], str] = {
     ("GET", "/api/v1/reports/attendance"): "api/test_reports.py",
     ("GET", "/api/v1/reports/attendance/online"): "api/test_reports.py",
     ("GET", "/api/v1/reports/attendance/export"): "api/test_reports.py",
+    ("GET", "/api/v1/reports/timesheet"): "api/test_reports.py",
+    ("GET", "/api/v1/reports/timesheet/export"): "api/test_reports.py",
     ("GET", "/api/v1/tts"): "api/test_audit_tts.py",
     ("HEAD", "/api/v1/tts"): "api/test_audit_tts.py",
 }

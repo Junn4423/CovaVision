@@ -946,8 +946,12 @@ class InMemoryRepository:
         today_date = dt_vn.date()
         today_records = []
         for r in self.attendance:
+            if str(r.get("organization_id") or "") != org_id:
+                continue
             emp_id = str(r.get("employee_id") or "")
             if emp_id != str(employee_id):
+                continue
+            if str(r.get("status") or "ACCEPTED").upper() != "ACCEPTED":
                 continue
             r_cap = r.get("captured_at")
             if not r_cap:

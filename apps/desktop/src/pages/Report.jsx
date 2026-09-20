@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
+  AlertTriangle,
   Calendar,
   Camera,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Download,
   Filter,
   FileSpreadsheet,
+  List,
   Percent,
   RefreshCw,
   Search,
+  Table as TableIcon,
   UserCheck,
   Users,
 } from 'lucide-react'
@@ -61,9 +65,13 @@ function getPresetDates(presetId) {
 }
 
 export default function Report() {
+  const [viewMode, setViewMode] = useState('timesheet') // 'timesheet' | 'logs'
   const [records, setRecords] = useState([])
+  const [timesheetRows, setTimesheetRows] = useState([])
+  const [timesheetStats, setTimesheetStats] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [exporting, setExporting] = useState(false)
+  const [exportingLogs, setExportingLogs] = useState(false)
+  const [exportingTimesheet, setExportingTimesheet] = useState(false)
   const [error, setError] = useState('')
   const [activePreset, setActivePreset] = useState('today')
   const [startDate, setStartDate] = useState(() => getPresetDates('today').start)
@@ -75,7 +83,7 @@ export default function Report() {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(15)
 
-  async function loadReport(start = startDate, end = endDate, status = statusFilter) {
+  async function loadData(start = startDate, end = endDate, status = statusFilter) {
     setLoading(true)
     setError('')
     try {
@@ -84,13 +92,21 @@ export default function Report() {
       if (end) filters.end_date = end
       if (status && status !== 'ALL') filters.status = status
 
-      const response = await api.getReport(filters)
-      const list = Array.isArray(response?.records)
-        ? response.records
-        : Array.isArray(response?.attendance)
-        ? response.attendance
+      const [logsRes, tsRes] = await Promise.all([
+        api.getReport(filters).catch(() => ({ records: [] })),
+        api.getTimesheetReport({ start_date: start, end_date: end }).catch(() => ({ timesheet: [], stats: null })),
+      ])
+
+      const list = Array.isArray(logsRes?.records)
+        ? logsRes.records
+        : Array.isArray(logsRes?.attendance)
+        ? logsRes.attendance
         : []
       setRecords(list)
+
+      const tsList = Array.isArray(tsRes?.timesheet) ? tsRes.timesheet : []
+      setTimesheetRows(tsList)
+      setTimesheetStats(tsRes?.stats || null)
       setCurrentPage(1)
     } catch (loadError) {
       setError(loadError?.message || 'Không tải được báo cáo điểm danh.')
@@ -100,7 +116,7 @@ export default function Report() {
   }
 
   useEffect(() => {
-    loadReport(startDate, endDate, statusFilter)
+    loadData(startDate, endDate, statusFilter)
   }, [startDate, endDate, statusFilter])
 
   function handlePresetChange(presetId) {
@@ -110,8 +126,8 @@ export default function Report() {
     setEndDate(end)
   }
 
-  async function handleExport() {
-    setExporting(true)
+  async function handleExportLogs() {
+    setExportingLogs(true)
     try {
       const filters = {}
       if (startDate) filters.start_date = startDate
@@ -124,15 +140,40 @@ export default function Report() {
       link.href = url
       link.download =
         result.filename ||
-        `covavision-report-${startDate || 'all'}-${endDate || 'all'}.csv`
+        `covavision-attendance-${startDate || 'all'}-${endDate || 'all'}.csv`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
     } catch (exportErr) {
-      setError(exportErr?.message || 'Không thể xuất file CSV.')
+      setError(exportErr?.message || 'Không thể xuất file CSV điểm danh.')
     } finally {
-      setExporting(false)
+      setExportingLogs(false)
+    }
+  }
+
+  async function handleExportTimesheet() {
+    setExportingTimesheet(true)
+    try {
+      const filters = {}
+      if (startDate) filters.start_date = startDate
+      if (endDate) filters.end_date = endDate
+
+      const result = await api.exportTimesheetExcel(filters)
+      const url = URL.createObjectURL(result.blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download =
+        result.filename ||
+        `covavision-timesheet-${startDate || 'all'}-${endDate || 'all'}.csv`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } catch (exportErr) {
+      setError(exportErr?.message || 'Không thể xuất Bảng chấm công.')
+    } finally {
+      setExportingTimesheet(false)
     }
   }
 
@@ -147,6 +188,20 @@ export default function Report() {
         (r.camera_name && r.camera_name.toLowerCase().includes(q))
     )
   }, [records, search])
+
+  // Filtered timesheet rows by search keyword
+  const filteredTimesheet = useMemo(() => {
+    if (!search.trim()) return timesheetRows
+    const q = search.toLowerCase()
+    return timesheetRows.filter(
+      (r) =>
+        (r.employee_name && r.employee_name.toLowerCase().includes(q)) ||
+        (r.employee_id && r.employee_id.toLowerCase().includes(q))
+    )
+  }, [timesheetRows, search])
+
+  // Active items depending on current view mode
+  const activeItems = viewMode === 'timesheet' ? filteredTimesheet : filteredRecords
 
   // Summary statistics computed from filtered records
   const stats = useMemo(() => {
@@ -172,12 +227,21 @@ export default function Report() {
     return { total, uniqueEmployees, avgConfidence, uniqueCameras }
   }, [filteredRecords])
 
+  // Timesheet summary statistics
+  const tsSummary = useMemo(() => {
+    const totalDays = timesheetStats?.total_work_days ?? filteredTimesheet.length
+    const totalEmployees = timesheetStats?.total_employees ?? new Set(filteredTimesheet.map((r) => r.employee_id).filter(Boolean)).size
+    const totalLate = timesheetStats?.total_late_cases ?? filteredTimesheet.filter((r) => r.is_late).length
+    const totalEarly = timesheetStats?.total_early_cases ?? filteredTimesheet.filter((r) => r.is_early_departure).length
+    return { totalDays, totalEmployees, totalLate, totalEarly }
+  }, [filteredTimesheet, timesheetStats])
+
   // Pagination calculation
-  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / pageSize))
-  const paginatedRecords = useMemo(() => {
+  const totalPages = Math.max(1, Math.ceil(activeItems.length / pageSize))
+  const paginatedItems = useMemo(() => {
     const startIdx = (currentPage - 1) * pageSize
-    return filteredRecords.slice(startIdx, startIdx + pageSize)
-  }, [filteredRecords, currentPage, pageSize])
+    return activeItems.slice(startIdx, startIdx + pageSize)
+  }, [activeItems, currentPage, pageSize])
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 pb-12 animate-in fade-in duration-300">
@@ -189,28 +253,37 @@ export default function Report() {
             Báo cáo & Thống kê điểm danh
           </h1>
           <p className="text-sm text-[var(--cv-text-secondary)] mt-1">
-            Tra cứu lịch sử nhận diện khuôn mặt, lọc theo thời gian và xuất báo cáo CSV.
+            Tổng hợp công nhật, phát hiện đi muộn / về sớm và xuất file báo cáo chuẩn.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 flex-wrap">
           <Button
             variant="ghost"
             size="md"
             icon={RefreshCw}
-            onClick={() => loadReport()}
+            onClick={() => loadData()}
             loading={loading}
           >
             Làm mới
           </Button>
           <Button
+            variant="secondary"
+            size="md"
+            icon={Download}
+            onClick={handleExportLogs}
+            loading={exportingLogs}
+          >
+            Xuất Dữ liệu gốc (CSV)
+          </Button>
+          <Button
             variant="primary"
             size="md"
             icon={Download}
-            onClick={handleExport}
-            loading={exporting}
+            onClick={handleExportTimesheet}
+            loading={exportingTimesheet}
           >
-            Xuất file CSV
+            Xuất Bảng chấm công (CSV)
           </Button>
         </div>
       </div>
@@ -232,36 +305,69 @@ export default function Report() {
       )}
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Tổng lượt điểm danh"
-          value={stats.total.toLocaleString()}
-          subtitle="Trong phạm vi lọc"
-          icon={UserCheck}
-          color="blue"
-        />
-        <StatCard
-          title="Nhân viên có mặt"
-          value={stats.uniqueEmployees}
-          subtitle="Cá nhân xác thực"
-          icon={Users}
-          color="emerald"
-        />
-        <StatCard
-          title="Độ tin cậy TB"
-          value={`${stats.avgConfidence}%`}
-          subtitle="Độ khớp AI trung bình"
-          icon={Percent}
-          color="purple"
-        />
-        <StatCard
-          title="Camera ghi nhận"
-          value={stats.uniqueCameras}
-          subtitle="Thiết bị tham gia thu"
-          icon={Camera}
-          color="cyan"
-        />
-      </div>
+      {viewMode === 'timesheet' ? (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            title="Tổng ngày công"
+            value={tsSummary.totalDays.toLocaleString()}
+            subtitle="Số lượt ngày làm việc"
+            icon={UserCheck}
+            color="blue"
+          />
+          <StatCard
+            title="Nhân sự có mặt"
+            value={tsSummary.totalEmployees}
+            subtitle="Cá nhân đã ghi nhận"
+            icon={Users}
+            color="emerald"
+          />
+          <StatCard
+            title="Số lượt đi muộn"
+            value={tsSummary.totalLate}
+            subtitle="Vượt giờ bắt đầu ca"
+            icon={Clock}
+            color="amber"
+          />
+          <StatCard
+            title="Số lượt về sớm"
+            value={tsSummary.totalEarly}
+            subtitle="Rời trước kết thúc ca"
+            icon={AlertTriangle}
+            color="purple"
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            title="Tổng lượt điểm danh"
+            value={stats.total.toLocaleString()}
+            subtitle="Trong phạm vi lọc"
+            icon={UserCheck}
+            color="blue"
+          />
+          <StatCard
+            title="Nhân viên có mặt"
+            value={stats.uniqueEmployees}
+            subtitle="Cá nhân xác thực"
+            icon={Users}
+            color="emerald"
+          />
+          <StatCard
+            title="Độ tin cậy TB"
+            value={`${stats.avgConfidence}%`}
+            subtitle="Độ khớp AI trung bình"
+            icon={Percent}
+            color="purple"
+          />
+          <StatCard
+            title="Camera ghi nhận"
+            value={stats.uniqueCameras}
+            subtitle="Thiết bị tham gia thu"
+            icon={Camera}
+            color="cyan"
+          />
+        </div>
+      )}
 
       {/* Filter and Date Range Control Card */}
       <Card className="p-5 space-y-4">
@@ -364,23 +470,76 @@ export default function Report() {
         </div>
       </Card>
 
+      {/* View Mode Tabs */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-1.5 p-1 bg-[var(--cv-bg-surface-elevated)] border border-[var(--cv-border-default)] rounded-2xl shadow-2xs">
+          <button
+            onClick={() => {
+              setViewMode('timesheet')
+              setCurrentPage(1)
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              viewMode === 'timesheet'
+                ? 'bg-[var(--cv-brand-500)] text-white shadow-xs'
+                : 'text-[var(--cv-text-secondary)] hover:text-[var(--cv-text-primary)] hover:bg-[var(--cv-bg-surface-hover)]'
+            }`}
+          >
+            <TableIcon className="w-4 h-4" />
+            <span>Bảng chấm công tổng hợp</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-md text-[10px] font-black ${
+                viewMode === 'timesheet'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-[var(--cv-bg-surface-hover)] text-[var(--cv-text-secondary)]'
+              }`}
+            >
+              {filteredTimesheet.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => {
+              setViewMode('logs')
+              setCurrentPage(1)
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              viewMode === 'logs'
+                ? 'bg-[var(--cv-brand-500)] text-white shadow-xs'
+                : 'text-[var(--cv-text-secondary)] hover:text-[var(--cv-text-primary)] hover:bg-[var(--cv-bg-surface-hover)]'
+            }`}
+          >
+            <List className="w-4 h-4" />
+            <span>Lịch sử quét chi tiết</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-md text-[10px] font-black ${
+                viewMode === 'logs'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-[var(--cv-bg-surface-hover)] text-[var(--cv-text-secondary)]'
+              }`}
+            >
+              {filteredRecords.length}
+            </span>
+          </button>
+        </div>
+      </div>
+
       {/* Main Records Table Card */}
       <Card className="overflow-hidden">
         <div className="p-4 border-b border-[var(--cv-border-default)] flex items-center justify-between text-xs text-[var(--cv-text-secondary)]">
           <div className="font-semibold">
             Hiển thị{' '}
             <span className="text-[var(--cv-text-primary)] font-bold">
-              {filteredRecords.length ? (currentPage - 1) * pageSize + 1 : 0}
+              {activeItems.length ? (currentPage - 1) * pageSize + 1 : 0}
             </span>{' '}
             -{' '}
             <span className="text-[var(--cv-text-primary)] font-bold">
-              {Math.min(currentPage * pageSize, filteredRecords.length)}
+              {Math.min(currentPage * pageSize, activeItems.length)}
             </span>{' '}
             trong tổng số{' '}
             <span className="text-[var(--cv-text-primary)] font-bold">
-              {filteredRecords.length}
+              {activeItems.length}
             </span>{' '}
-            bản ghi
+            {viewMode === 'timesheet' ? 'ngày công' : 'lượt quét'}
           </div>
 
           <div className="flex items-center gap-2">
@@ -406,13 +565,138 @@ export default function Report() {
             <RefreshCw className="w-6 h-6 animate-spin text-[var(--cv-brand-500)]" />
             <span>Đang tải dữ liệu báo cáo...</span>
           </div>
-        ) : filteredRecords.length === 0 ? (
+        ) : activeItems.length === 0 ? (
           <EmptyState
             icon={FileSpreadsheet}
-            title="Không tìm thấy bản ghi điểm danh nào"
+            title={
+              viewMode === 'timesheet'
+                ? 'Không tìm thấy dữ liệu bảng công nào'
+                : 'Không tìm thấy bản ghi điểm danh nào'
+            }
             description="Hãy thử thay đổi khoảng ngày, từ khóa tìm kiếm hoặc bấm 'Làm mới'."
             className="m-6 border-none bg-transparent"
           />
+        ) : viewMode === 'timesheet' ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-[var(--cv-border-default)] bg-[var(--cv-bg-surface-elevated)] text-[var(--cv-text-primary)] uppercase tracking-wider font-bold text-[11px]">
+                  <th className="py-3 px-5">Nhân viên</th>
+                  <th className="py-3 px-4">Ngày</th>
+                  <th className="py-3 px-4">Giờ vào (Check-in)</th>
+                  <th className="py-3 px-4">Giờ ra (Check-out)</th>
+                  <th className="py-3 px-4">Tổng giờ làm</th>
+                  <th className="py-3 px-4 text-right">Trạng thái</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--cv-border-default)]">
+                {paginatedItems.map((row, idx) => {
+                  return (
+                    <tr
+                      key={`${row.employee_id}-${row.date}-${idx}`}
+                      className="hover:bg-[var(--cv-bg-surface-hover)]/60 transition-colors"
+                    >
+                      <td className="py-3.5 px-5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-xl bg-[var(--cv-brand-100)] dark:bg-[var(--cv-brand-950)] text-[var(--cv-brand-700)] dark:text-[var(--cv-brand-300)] flex items-center justify-center font-black text-xs shrink-0">
+                            {(row.employee_name || row.employee_id || 'NV')
+                              .slice(0, 2)
+                              .toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-bold text-sm text-[var(--cv-text-primary)]">
+                              {row.employee_name || 'Chưa đặt tên'}
+                            </p>
+                            <p className="text-[11px] text-[var(--cv-text-tertiary)] font-mono">
+                              {row.employee_id || '-'}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="py-3.5 px-4 font-mono font-medium text-[var(--cv-text-secondary)]">
+                        {row.date}
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        {row.check_in ? (
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-[var(--cv-text-primary)]">
+                              {row.check_in}
+                            </span>
+                            {row.is_late ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                Muộn {row.late_minutes}p
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                Đúng giờ
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[var(--cv-text-tertiary)] italic">Chưa ghi nhận</span>
+                        )}
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        {row.check_out ? (
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-[var(--cv-text-primary)]">
+                              {row.check_out}
+                            </span>
+                            {row.is_early_departure ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                                Sớm {row.early_minutes}p
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                Đúng giờ
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[var(--cv-text-tertiary)] italic">Chưa ghi nhận</span>
+                        )}
+                      </td>
+
+                      <td className="py-3.5 px-4 font-mono font-bold text-[var(--cv-brand-600)] dark:text-[var(--cv-brand-400)]">
+                        {Number(row.work_hours || 0).toFixed(2)} giờ
+                      </td>
+
+                      <td className="py-3.5 px-4 text-right">
+                        <Badge
+                          variant={
+                            row.status === 'completed'
+                              ? 'success'
+                              : row.status === 'late' || row.status === 'early_departure'
+                              ? 'warning'
+                              : row.status === 'late_and_early'
+                              ? 'danger'
+                              : 'neutral'
+                          }
+                          size="sm"
+                          dot
+                        >
+                          {row.status === 'completed'
+                            ? 'Đúng giờ'
+                            : row.status === 'late'
+                            ? 'Đi muộn'
+                            : row.status === 'early_departure'
+                            ? 'Về sớm'
+                            : row.status === 'late_and_early'
+                            ? 'Muộn & Về sớm'
+                            : row.status === 'missing_checkout'
+                            ? 'Thiếu giờ ra'
+                            : 'Thiếu giờ vào'}
+                        </Badge>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
@@ -426,7 +710,7 @@ export default function Report() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--cv-border-default)]">
-                {paginatedRecords.map((record) => {
+                {paginatedItems.map((record) => {
                   const confidenceNum = Number(record.confidence)
                   const hasConf = !isNaN(confidenceNum) && confidenceNum > 0
                   const confPct = hasConf ? (confidenceNum * 100).toFixed(1) : '-'
@@ -527,7 +811,7 @@ export default function Report() {
         )}
 
         {/* Pagination Footer */}
-        {filteredRecords.length > 0 && (
+        {activeItems.length > 0 && (
           <div className="p-4 border-t border-[var(--cv-border-default)] flex items-center justify-between">
             <span className="text-xs text-[var(--cv-text-tertiary)]">
               Trang <span className="font-bold text-[var(--cv-text-primary)]">{currentPage}</span>{' '}

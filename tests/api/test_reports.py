@@ -66,3 +66,44 @@ def test_reports_pagination_validation(
         "/api/v1/reports/attendance?offset=-1",
         headers=admin_headers,
     ).status_code == 422
+
+
+def test_timesheet_report_and_export(
+    client: TestClient,
+    repository,
+    admin_headers: dict[str, str],
+) -> None:
+    # Seed attendance records for timesheet
+    asyncio.run(repository.create_attendance({
+        "employee_id": "EMP-TS-1",
+        "employee_name": "Nguyen Van A",
+        "status": "accepted",
+        "captured_at": "2026-09-20T08:05:00+07:00",
+    }, repository.organization_id))
+    asyncio.run(repository.create_attendance({
+        "employee_id": "EMP-TS-1",
+        "employee_name": "Nguyen Van A",
+        "status": "accepted",
+        "captured_at": "2026-09-20T17:35:00+07:00",
+    }, repository.organization_id))
+
+    # Test timesheet JSON endpoint
+    resp = client.get("/api/v1/reports/timesheet", headers=admin_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert len(data["timesheet"]) >= 1
+    row = next(r for r in data["timesheet"] if r["employee_id"] == "EMP-TS-1")
+    assert row["work_hours"] > 0
+    assert row["check_in"] is not None
+    assert row["check_out"] is not None
+    assert "summary" in data
+    assert "stats" in data
+
+    # Test timesheet export endpoint
+    export_resp = client.get("/api/v1/reports/timesheet/export", headers=admin_headers)
+    assert export_resp.status_code == 200
+    assert "attachment" in export_resp.headers["content-disposition"]
+    assert "covavision-timesheet.csv" in export_resp.headers["content-disposition"]
+    assert "EMP-TS-1" in export_resp.text
+

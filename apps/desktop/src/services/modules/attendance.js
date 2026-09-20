@@ -51,4 +51,12 @@ export const attendanceApi = {
     const query = buildQuery(filters)
     return requestBlob(`/api/v1/reports/attendance/export${query ? `?${query}` : ''}`)
   },
+  getTimesheetReport: filters => {
+    const query = buildQuery(filters)
+    return request(`/api/v1/reports/timesheet${query ? `?${query}` : ''}`)
+  },
+  exportTimesheetExcel: filters => {
+    const query = buildQuery(filters)
+    return requestBlob(`/api/v1/reports/timesheet/export${query ? `?${query}` : ''}`)
+  },
 }
