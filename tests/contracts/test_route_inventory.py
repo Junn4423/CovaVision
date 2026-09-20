@@ -41,6 +41,7 @@ ROUTE_TEST_MATRIX: dict[tuple[str, str], str] = {
     ("DELETE", "/api/v1/employees/{employee_id}/face"): "api/test_employees.py",
     ("DELETE", "/api/v1/employees/{employee_id}"): "api/test_employees.py",
     ("GET", "/api/v1/cameras"): "api/test_cameras.py",
+    ("POST", "/api/v1/cameras/test-connection"): "api/test_cameras.py",
     ("POST", "/api/v1/cameras/discover"): "api/test_cameras.py",
     ("POST", "/api/v1/cameras"): "api/test_cameras.py",
     ("DELETE", "/api/v1/cameras/{camera_id}"): "api/test_cameras.py",

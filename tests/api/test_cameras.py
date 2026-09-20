@@ -176,3 +176,54 @@ def test_camera_discovery_and_edge_cases(
         headers=admin_headers,
         json={"camera_id": "missing"},
     ).status_code == 404
+
+
+def test_camera_test_connection(
+    test_app,
+    client: TestClient,
+    admin_headers: dict[str, str],
+    staff_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    # 1. Non-admin forbidden
+    assert client.post("/api/v1/cameras/test-connection", headers=staff_headers, json={}).status_code == 403
+
+    # 2. Empty payload -> 422
+    assert client.post("/api/v1/cameras/test-connection", headers=admin_headers, json={}).status_code == 422
+
+    # 3. Missing camera_id -> 404
+    missing_res = client.post(
+        "/api/v1/cameras/test-connection",
+        headers=admin_headers,
+        json={"camera_id": "nonexistent-camera-id"},
+    )
+    assert missing_res.status_code == 404
+
+    # 4. Probe with mock result
+    from app.api.routes import cameras as cameras_route
+    monkeypatch.setattr(
+        cameras_route,
+        "_probe_tcp_and_stream",
+        lambda url, timeout: {
+            "success": True,
+            "connected": True,
+            "stream_readable": True,
+            "latency_ms": 12.5,
+            "resolution": "1920x1080",
+            "message": "Kết nối camera thành công!",
+        },
+    )
+
+    resp = client.post(
+        "/api/v1/cameras/test-connection",
+        headers=admin_headers,
+        json={"rtsp_url": "rtsp://admin:123456@192.168.1.100:554/live"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["connected"] is True
+    assert data["stream_readable"] is True
+    assert data["resolution"] == "1920x1080"
+    assert data["latency_ms"] == 12.5
+

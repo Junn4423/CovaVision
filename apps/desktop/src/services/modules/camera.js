@@ -31,6 +31,12 @@ export const cameraApi = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(camera || {}),
   }),
+  testCameraConnection: payload => request('/api/v1/cameras/test-connection', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+    timeout: 12000,
+  }),
   deleteCamera: cameraId => request(`/api/v1/cameras/${encodeURIComponent(cameraId)}`, {
     method: 'DELETE',
   }),

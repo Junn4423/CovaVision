@@ -131,11 +131,39 @@ export default function Cameras() {
   const [message, setMessage] = useState(null)
   const [search, setSearch] = useState('')
   const [activeSettingsTab, setActiveSettingsTab] = useState('general') // 'general' | 'stream' | 'advanced'
+  const [testingConnection, setTestingConnection] = useState(false)
+  const [testResult, setTestResult] = useState(null)
 
   const selectedCamera = useMemo(
     () => cameras.find((item) => item.id === selectedCameraId) || null,
     [cameras, selectedCameraId]
   )
+
+  async function handleTestConnection(targetUrl, targetId) {
+    const url = targetUrl !== undefined ? targetUrl : cameraForm.rtsp_url
+    const camId = targetId !== undefined ? targetId : selectedCameraId
+    if (!url?.trim() && !camId) {
+      setMessage({ type: 'error', text: 'Vui lòng nhập RTSP Stream URL để kiểm tra kết nối.' })
+      return
+    }
+    setTestingConnection(true)
+    setTestResult(null)
+    try {
+      const res = await api.testCameraConnection({
+        camera_id: camId || undefined,
+        rtsp_url: url?.trim() || undefined,
+      })
+      setTestResult(res)
+    } catch (err) {
+      setTestResult({
+        success: false,
+        connected: false,
+        message: err.message || 'Lỗi khi kiểm tra kết nối camera.',
+      })
+    } finally {
+      setTestingConnection(false)
+    }
+  }
 
   useEffect(() => {
     loadCameras()
@@ -174,6 +202,7 @@ export default function Cameras() {
     if (!camera) {
       setSelectedCameraId('')
       setCameraForm(createEmptyCamera())
+      setTestResult(null)
       return
     }
 
@@ -195,6 +224,7 @@ export default function Cameras() {
       },
     })
     setMessage(null)
+    setTestResult(null)
   }
 
   function updateForm(patch) {
@@ -225,6 +255,7 @@ export default function Cameras() {
     setSelectedCameraId('')
     setCameraForm(createEmptyCamera())
     setMessage(null)
+    setTestResult(null)
   }
 
   function handleCameraTypeChange(nextType) {
@@ -494,17 +525,31 @@ export default function Cameras() {
               </p>
             </div>
 
-            {selectedCameraId && (
-              <Button
-                variant="danger"
-                size="sm"
-                icon={Trash2}
-                onClick={() => setDeleteDialogOpen(true)}
-                disabled={saving || !!selectedCamera?.is_default}
-              >
-                Xóa camera
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {cameraForm.camera_type === 'rtsp' && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={Wifi}
+                  onClick={() => handleTestConnection()}
+                  loading={testingConnection}
+                  disabled={testingConnection || (!cameraForm.rtsp_url?.trim() && !selectedCameraId)}
+                >
+                  Kiểm tra kết nối
+                </Button>
+              )}
+              {selectedCameraId && (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  icon={Trash2}
+                  onClick={() => setDeleteDialogOpen(true)}
+                  disabled={saving || !!selectedCamera?.is_default}
+                >
+                  Xóa camera
+                </Button>
+              )}
+            </div>
           </div>
 
           <div className="mt-6 space-y-6">
@@ -582,11 +627,64 @@ export default function Cameras() {
                   <Input
                     label="RTSP Stream URL (Bắt buộc) *"
                     value={cameraForm.rtsp_url}
-                    onChange={(e) => updateForm({ rtsp_url: e.target.value })}
+                    onChange={(e) => {
+                      updateForm({ rtsp_url: e.target.value })
+                      setTestResult(null)
+                    }}
                     placeholder="rtsp://admin:password@192.168.1.50:554/Streaming/Channels/101"
                     icon={Radio}
                     required
                   />
+
+                  {/* Test Connection Action & Feedback */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      icon={RefreshCw}
+                      onClick={() => handleTestConnection()}
+                      loading={testingConnection}
+                      disabled={testingConnection || (!cameraForm.rtsp_url?.trim() && !selectedCameraId)}
+                      className="cursor-pointer text-xs"
+                    >
+                      {testingConnection ? 'Đang kiểm tra kết nối...' : 'Kiểm tra kết nối RTSP'}
+                    </Button>
+                    <span className="text-[11px] text-[var(--cv-text-tertiary)]">
+                      Kiểm tra cổng TCP và tín hiệu video trực tiếp từ camera
+                    </span>
+                  </div>
+
+                  {testResult && (
+                    <div
+                      className={`p-3 rounded-xl text-xs flex items-start gap-2.5 animate-in fade-in duration-150 ${
+                        testResult.connected
+                          ? testResult.stream_readable === false
+                            ? 'bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300'
+                            : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
+                          : 'bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300'
+                      }`}
+                    >
+                      {testResult.connected ? (
+                        testResult.stream_readable === false ? (
+                          <AlertCircle className="w-4 h-4 shrink-0 text-amber-500 mt-0.5" />
+                        ) : (
+                          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500 mt-0.5" />
+                        )
+                      ) : (
+                        <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
+                      )}
+                      <div className="space-y-0.5 flex-1">
+                        <p className="font-semibold">{testResult.message}</p>
+                        {testResult.connected && (
+                          <div className="flex items-center gap-3 text-[11px] opacity-80 pt-0.5 font-mono">
+                            {testResult.latency_ms != null && <span>Độ trễ: {testResult.latency_ms}ms</span>}
+                            {testResult.resolution && <span>Độ phân giải: {testResult.resolution}</span>}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   <div className="grid sm:grid-cols-2 gap-3 items-center text-xs text-[var(--cv-text-secondary)]">
                     <div>
                       <label className="block font-semibold mb-1">Giao thức truyền (Transport)</label>

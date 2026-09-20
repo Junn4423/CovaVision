@@ -3,7 +3,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import re
+import socket
+import time
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -113,6 +116,124 @@ async def list_cameras(
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     return {"success": True, "cameras": [public_camera(item) for item in await repository.list_cameras(_organization_id(current_user))]}
+
+
+def _probe_tcp_and_stream(
+    url: str,
+    timeout_seconds: float = 3.0,
+) -> dict[str, Any]:
+    """Test TCP socket reachability and optional frame decode for an RTSP/HTTP URL."""
+    cleaned_url = url.strip()
+    if not cleaned_url:
+        return {"success": False, "connected": False, "message": "Địa chỉ URL camera không hợp lệ"}
+
+    parsed = urlparse(cleaned_url)
+    scheme = (parsed.scheme or "rtsp").lower()
+    host = parsed.hostname
+    if not host:
+        return {"success": False, "connected": False, "message": "Không tìm thấy địa chỉ host/IP trong URL camera"}
+
+    default_port = 554 if scheme in ("rtsp", "rtsps") else 80
+    port = parsed.port or default_port
+
+    start_time = time.perf_counter()
+    try:
+        with socket.create_connection((host, port), timeout=timeout_seconds):
+            latency_ms = round((time.perf_counter() - start_time) * 1000, 1)
+    except socket.timeout:
+        return {
+            "success": False,
+            "connected": False,
+            "message": f"Hết thời gian chờ kết nối tới {host}:{port} (Timeout)",
+            "latency_ms": None,
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            "connected": False,
+            "message": f"Không thể kết nối tới {host}:{port} ({exc})",
+            "latency_ms": None,
+        }
+
+    try:
+        import cv2
+
+        capture = cv2.VideoCapture(cleaned_url)
+        for prop in ("CAP_PROP_OPEN_TIMEOUT_MSEC", "CAP_PROP_READ_TIMEOUT_MSEC"):
+            prop_id = getattr(cv2, prop, None)
+            if prop_id is not None:
+                capture.set(prop_id, timeout_seconds * 1000)
+
+        opened = capture.isOpened()
+        ret = False
+        width, height = 0, 0
+        if opened:
+            ret, frame = capture.read()
+            if ret and frame is not None:
+                height, width = frame.shape[:2]
+        capture.release()
+
+        if ret and width > 0:
+            return {
+                "success": True,
+                "connected": True,
+                "stream_readable": True,
+                "latency_ms": latency_ms,
+                "resolution": f"{width}x{height}",
+                "message": f"Kết nối camera thành công! Nhận tín hiệu luồng hình {width}x{height} ({latency_ms}ms).",
+            }
+        else:
+            return {
+                "success": True,
+                "connected": True,
+                "stream_readable": False,
+                "latency_ms": latency_ms,
+                "message": f"Cổng camera {host}:{port} phản hồi ({latency_ms}ms), nhưng chưa nhận được hình ảnh. Vui lòng kiểm tra tài khoản, mật khẩu hoặc đường dẫn stream.",
+            }
+    except Exception:
+        return {
+            "success": True,
+            "connected": True,
+            "stream_readable": None,
+            "latency_ms": latency_ms,
+            "message": f"Kết nối cổng camera {host}:{port} thành công ({latency_ms}ms).",
+        }
+
+
+@router.post("/test-connection")
+async def test_camera_connection(
+    payload: dict[str, Any],
+    current_user: dict[str, Any] = Depends(require_admin),
+    repository: Repository = Depends(get_repository),
+) -> dict[str, Any]:
+    camera_id = str(payload.get("camera_id") or payload.get("id") or "").strip()
+    rtsp_url = str(
+        payload.get("rtsp_url")
+        or payload.get("connection_url")
+        or payload.get("url")
+        or ""
+    ).strip()
+
+    if not rtsp_url and camera_id:
+        camera = await repository.get_camera(camera_id, _organization_id(current_user))
+        if camera is None:
+            raise HTTPException(status_code=404, detail="Camera not found")
+        rtsp_url = str(
+            camera.get("connection_url")
+            or camera.get("source")
+            or camera.get("rtsp_url")
+            or ""
+        ).strip()
+
+    if not rtsp_url:
+        raise HTTPException(
+            status_code=422,
+            detail="Vui lòng cung cấp camera_id hoặc rtsp_url để kiểm tra kết nối",
+        )
+
+    timeout_seconds = max(1.0, min(float(payload.get("timeout_seconds") or 4.0), 10.0))
+    result = await asyncio.to_thread(_probe_tcp_and_stream, rtsp_url, timeout_seconds)
+    return result
 
 
 @router.post("/discover")
