@@ -89,6 +89,13 @@ class Repository(Protocol):
 
     async def create_attendance(self, payload: dict[str, Any], organization_id: str | None = None) -> dict[str, Any]: ...
 
+    async def find_recent_attendance(
+        self,
+        employee_id: str,
+        since: datetime,
+        organization_id: str | None = None,
+    ) -> dict[str, Any] | None: ...
+
     async def list_attendance(self, filters: dict[str, Any], organization_id: str | None = None) -> list[dict[str, Any]]: ...
 
     async def get_settings(
@@ -529,6 +536,26 @@ class InMemoryRepository:
         }
         self.attendance.append(record)
         return record
+
+    async def find_recent_attendance(
+        self,
+        employee_id: str,
+        since: datetime,
+        organization_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        target_employee_id = str(employee_id).strip()
+        target_organization_id = str(organization_id or "").strip()
+        for record in reversed(self.attendance):
+            if str(record.get("employee_id") or "") != target_employee_id:
+                continue
+            if target_organization_id and str(record.get("organization_id") or "") != target_organization_id:
+                continue
+            if str(record.get("status") or "").upper() != "ACCEPTED":
+                continue
+            captured_at = _parse_filter_datetime(record.get("captured_at"))
+            if captured_at is not None and captured_at >= since:
+                return record
+        return None
 
     async def list_attendance(self, filters: dict[str, Any], organization_id: str | None = None) -> list[dict[str, Any]]:
         items = list(reversed(self.attendance))
@@ -1098,6 +1125,34 @@ class PrismaRepository(PrismaBillingMixin):
             include={"employee": True, "camera": True},
         )
         return self._attendance_to_dict(record)
+
+    async def find_recent_attendance(
+        self,
+        employee_id: str,
+        since: datetime,
+        organization_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        await self._ensure_connected()
+        requested_organization_id = str(organization_id or "").strip()
+        employee_where: dict[str, Any] = {"OR": [{"id": str(employee_id)}, {"employeeCode": str(employee_id)}]}
+        if requested_organization_id:
+            employee_where = {"AND": [{"organizationId": requested_organization_id}, employee_where]}
+        employee = await self.client.employee.find_first(where=employee_where)
+        if employee is None:
+            return None
+        where: dict[str, Any] = {
+            "employeeId": employee.id,
+            "status": "ACCEPTED",
+            "capturedAt": {"gte": since},
+        }
+        if requested_organization_id:
+            where["organizationId"] = requested_organization_id
+        record = await self.client.attendancerecord.find_first(
+            where=where,
+            order={"capturedAt": "desc"},
+            include={"employee": True, "camera": True},
+        )
+        return self._attendance_to_dict(record) if record else None
 
     async def list_attendance(self, filters: dict[str, Any], organization_id: str | None = None) -> list[dict[str, Any]]:
         await self._ensure_connected()

@@ -83,7 +83,7 @@ async def test_recognize_creates_local_attendance_record_for_match() -> None:
 
 
 @pytest.mark.asyncio
-async def test_recognize_records_each_successful_face_scan() -> None:
+async def test_recognize_deduplicates_successful_face_scans() -> None:
     repository = InMemoryRepository()
     await repository.save_employee({
         "employee_id": "EMP-001",
@@ -103,4 +103,6 @@ async def test_recognize_records_each_successful_face_scan() -> None:
     assert second["success"] is True
     assert first["record"]["attendance_type"] == "auto"
     assert second["record"]["attendance_type"] == "auto"
-    assert len(repository.attendance) == 2
+    assert second["duplicate"] is True
+    assert second["record"]["id"] == first["record"]["id"]
+    assert len(repository.attendance) == 1

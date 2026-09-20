@@ -6,7 +6,7 @@ import base64
 import binascii
 import asyncio
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from app.core.config import settings
@@ -197,6 +197,33 @@ class RecognitionService:
 
         user = result["detected_user"]
         async with self._get_attendance_lock():
+            captured_at = datetime.now(timezone.utc)
+            cooldown = settings.attendance_cooldown_seconds if cooldown_seconds is None else cooldown_seconds
+            try:
+                cooldown_value = max(0.0, float(cooldown))
+            except (TypeError, ValueError):
+                cooldown_value = float(settings.attendance_cooldown_seconds)
+            if cooldown_value > 0:
+                recent = await self.repository.find_recent_attendance(
+                    str(user["employee_id"]),
+                    captured_at - timedelta(seconds=cooldown_value),
+                    organization_id,
+                )
+                if recent is not None:
+                    response = {
+                        **result,
+                        "success": True,
+                        "duplicate": True,
+                        "message": "Nhân viên đã được ghi nhận trong khoảng thời gian vừa qua.",
+                        "user": user,
+                        "record": recent,
+                        "attendance": recent,
+                    }
+                    if include_preview:
+                        response["preview_image_base64"] = (
+                            "data:image/jpeg;base64," + base64.b64encode(image_bytes).decode("ascii")
+                        )
+                    return response
             record = await self.repository.create_attendance({
                 "employee_id": user["employee_id"],
                 "camera_id": camera_id,
@@ -204,7 +231,7 @@ class RecognitionService:
                 # successful face scan is one independent AUTO record.
                 "attendance_type": "auto",
                 "status": "accepted",
-                "captured_at": datetime.now(timezone.utc).isoformat(),
+                "captured_at": captured_at.isoformat(),
                 "confidence": result["similarity"],
                 "location": location,
                 "organization_id": organization_id,
@@ -212,6 +239,7 @@ class RecognitionService:
         response = {
             **result,
             "success": True,
+            "duplicate": False,
             "message": "Quét mặt thành công, đã ghi nhận.",
             "user": user,
             "record": record,
