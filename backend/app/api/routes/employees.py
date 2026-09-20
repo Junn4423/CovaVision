@@ -105,8 +105,21 @@ async def register_face(
     # the partial form payload — that can overwrite existing employee data.
     existing = await repository.get_employee(employee_id, organization_id)
     if existing is None:
-        raise HTTPException(status_code=404, detail="Employee not found")
-    if not existing.get("has_face"):
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            raise HTTPException(status_code=404, detail="Employee not found")
+        billing = await repository.get_billing_summary(organization_id)
+        error = quota_error(billing, adding_employee=True, adding_face=True)
+        if error:
+            raise HTTPException(status_code=402, detail=error)
+        existing = await repository.save_employee({
+            "employee_id": employee_id,
+            "name": name,
+            "department": str(payload.get("department") or "").strip(),
+            "position": str(payload.get("position") or "").strip(),
+            "organization_id": organization_id,
+        })
+    elif not existing.get("has_face"):
         error = quota_error(await repository.get_billing_summary(organization_id), adding_face=True)
         if error:
             raise HTTPException(status_code=402, detail=error)

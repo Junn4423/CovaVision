@@ -490,14 +490,14 @@ export default function ManageFaces() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-black text-slate-800 dark:text-slate-100 tracking-tight">
               Nhân sự & Khuôn mặt
             </h1>
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
               {employees.length} nhân sự
             </span>
           </div>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
             Quản lý nhân viên, xem ảnh sinh trắc học và đăng ký khuôn mặt điểm danh.
           </p>
         </div>
@@ -510,7 +510,7 @@ export default function ManageFaces() {
               setSelectedEmployeeForReg(null)
               setRegisterModalOpen(true)
             }}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs sm:text-sm font-bold shadow-sm shadow-emerald-700/20 transition-all"
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs sm:text-sm font-bold shadow-sm shadow-emerald-700/20 transition-all cursor-pointer"
           >
             <Camera size={16} />
             <span>Đăng ký khuôn mặt mới</span>
@@ -520,9 +520,9 @@ export default function ManageFaces() {
             type="button"
             onClick={loadEmployees}
             disabled={loading}
-            className="inline-flex items-center gap-2 px-3.5 py-2.5 bg-white text-slate-700 hover:bg-slate-50 active:scale-95 rounded-xl text-xs sm:text-sm font-semibold border border-slate-200 shadow-2xs transition-all disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-3.5 py-2.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 rounded-xl text-xs sm:text-sm font-semibold border border-slate-200 dark:border-slate-700 shadow-2xs transition-all disabled:opacity-50 cursor-pointer"
           >
-            <RotateCw size={15} className={loading ? 'animate-spin text-blue-600' : ''} />
+            <RotateCw size={15} className={loading ? 'animate-spin text-blue-600 dark:text-blue-400' : ''} />
             <span className="hidden sm:inline">Làm mới</span>
           </button>
         </div>
@@ -530,43 +530,43 @@ export default function ManageFaces() {
 
       {/* Quick Summary Bento Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-        <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-2xs flex items-center gap-3.5">
-          <div className="w-11 h-11 rounded-xl bg-blue-50 text-blue-700 border border-blue-100 flex items-center justify-center shrink-0">
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-400 border border-blue-100 dark:border-blue-900/50 flex items-center justify-center shrink-0">
             <Users size={20} />
           </div>
           <div>
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
               Tổng nhân sự
             </span>
-            <span className="text-xl sm:text-2xl font-black text-slate-800">
+            <span className="text-xl sm:text-2xl font-black text-slate-800 dark:text-slate-100">
               {employees.length}
             </span>
           </div>
         </div>
 
-        <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-2xs flex items-center gap-3.5">
-          <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center justify-center shrink-0">
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/50 flex items-center justify-center shrink-0">
             <CheckCircle2 size={20} />
           </div>
           <div>
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
               Đã có khuôn mặt
             </span>
-            <span className="text-xl sm:text-2xl font-black text-emerald-700">
+            <span className="text-xl sm:text-2xl font-black text-emerald-700 dark:text-emerald-400">
               {withFaceCount}
             </span>
           </div>
         </div>
 
-        <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-2xs flex items-center gap-3.5">
-          <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-700 border border-amber-100 flex items-center justify-center shrink-0">
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xs flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-100 dark:border-amber-900/50 flex items-center justify-center shrink-0">
             <Camera size={20} />
           </div>
           <div>
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
               Chưa có khuôn mặt
             </span>
-            <span className="text-xl sm:text-2xl font-black text-amber-700">
+            <span className="text-xl sm:text-2xl font-black text-amber-700 dark:text-amber-400">
               {withoutFaceCount}
             </span>
           </div>
@@ -576,23 +576,23 @@ export default function ManageFaces() {
       {/* Filter Tabs & Search Bar */}
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
         {/* Filter Pills */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl border border-slate-200/60 overflow-x-auto">
+        <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 dark:bg-slate-800/90 rounded-2xl border border-slate-200/60 dark:border-slate-700 overflow-x-auto">
           {filterButtons.map(btn => {
             const active = faceFilter === btn.key
             return (
               <button
                 key={btn.key}
                 onClick={() => setFaceFilter(btn.key)}
-                className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                   active
-                    ? 'bg-white text-blue-700 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-white dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
                 }`}
               >
                 <span>{btn.label}</span>
                 <span
                   className={`px-1.5 py-0.5 rounded-full text-[10px] ${
-                    active ? 'bg-blue-100 text-blue-800' : 'bg-slate-200/80 text-slate-600'
+                    active ? 'bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-200' : 'bg-slate-200/80 dark:bg-slate-700/80 text-slate-600 dark:text-slate-300'
                   }`}
                 >
                   {btn.count}
@@ -603,20 +603,20 @@ export default function ManageFaces() {
         </div>
 
         {/* Search Field */}
-        <div className="relative flex-1 max-w-md">
-          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+        <div className="relative flex-1 max-w-md flex items-center">
+          <Search size={16} className="absolute left-3.5 text-slate-400 pointer-events-none z-10" />
           <input
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Tìm theo tên, mã NV, phòng ban..."
-            className="w-full pl-10 pr-9 py-2.5 rounded-xl border border-slate-200/80 bg-white text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-2xs"
+            className="cv-input has-icon-left !pl-10 has-icon-right !pr-9 text-xs sm:text-sm font-medium"
           />
           {search && (
             <button
               type="button"
               onClick={() => setSearch('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              className="absolute right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 z-10 cursor-pointer"
             >
               <X size={14} />
             </button>
@@ -624,14 +624,14 @@ export default function ManageFaces() {
         </div>
 
         {/* View Mode Toggle */}
-        <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200 shrink-0">
+        <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0">
           <button
             type="button"
             onClick={() => setViewMode('table')}
             className={`p-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               viewMode === 'table'
-                ? 'bg-white text-blue-600 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
+                ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
             title="Dạng bảng chi tiết"
           >
@@ -642,8 +642,8 @@ export default function ManageFaces() {
             onClick={() => setViewMode('grid')}
             className={`p-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               viewMode === 'grid'
-                ? 'bg-white text-blue-600 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
+                ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
             title="Dạng lưới thẻ"
           >
@@ -772,7 +772,7 @@ export default function ManageFaces() {
               <div className="max-h-[calc(100vh-380px)] min-h-[340px] overflow-y-auto overflow-x-auto">
               <table className="w-full text-left text-sm border-collapse min-w-[850px]">
                 {/* Sticky Header */}
-                <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-xs border-b border-slate-200/80 text-xs font-bold uppercase tracking-wider text-slate-500">
+                <thead className="sticky top-0 z-10 bg-slate-100/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-700 text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-100">
                   <tr>
                     <th className="py-3 px-4 w-10">
                       <input

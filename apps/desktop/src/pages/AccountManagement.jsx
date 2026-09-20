@@ -356,14 +356,14 @@ export default function AccountManagement() {
       <Card>
         {/* Table Filters Header */}
         <div className="p-5 pb-4 border-b border-[var(--cv-border-default)] flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--cv-text-tertiary)]" />
+          <div className="relative flex-1 max-w-sm flex items-center">
+            <Search className="w-4 h-4 absolute left-3 text-[var(--cv-text-tertiary)] pointer-events-none z-10" />
             <input
               type="text"
               placeholder="Tìm theo username hoặc vai trò..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="cv-input pl-9 text-xs"
+              className="cv-input has-icon-left !pl-10 text-xs font-medium"
             />
           </div>
 

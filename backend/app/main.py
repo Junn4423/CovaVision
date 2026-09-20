@@ -10,6 +10,7 @@ from app.api.routes.employees import router as employees_router
 from app.api.routes.health import router as health_router
 from app.api.routes.reports import router as reports_router
 from app.api.routes.settings import router as settings_router
+from app.api.routes.tts import router as tts_router
 from app.camera.discovery import CameraDiscoveryService
 from app.camera.stream_manager import CameraStreamManager
 from app.core.config import settings
@@ -44,6 +45,7 @@ def create_app(repository=None, camera_manager=None, camera_discovery=None) -> F
     application.include_router(attendance_router)
     application.include_router(settings_router)
     application.include_router(reports_router)
+    application.include_router(tts_router)
     return application
 
 

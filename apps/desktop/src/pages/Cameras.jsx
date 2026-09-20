@@ -399,14 +399,14 @@ export default function Cameras() {
         {/* Left Column: Camera List */}
         <Card className="flex flex-col h-full max-h-[800px]">
           <div className="p-4 border-b border-[var(--cv-border-default)]">
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--cv-text-tertiary)]" />
+            <div className="relative flex items-center">
+              <Search className="w-4 h-4 absolute left-3 text-[var(--cv-text-tertiary)] pointer-events-none z-10" />
               <input
                 type="text"
                 placeholder="Tìm camera..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="cv-input pl-9 text-xs"
+                className="cv-input has-icon-left !pl-10 text-xs font-medium"
               />
             </div>
           </div>

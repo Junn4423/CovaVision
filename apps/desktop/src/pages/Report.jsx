@@ -288,11 +288,11 @@ export default function Report() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
           {/* Search Input */}
           <div className="relative">
-            <label className="block text-xs font-semibold text-[var(--cv-text-secondary)] mb-1">
+            <label className="block text-xs font-bold text-[var(--cv-text-primary)] mb-1">
               Tìm theo nhân viên / camera
             </label>
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--cv-text-tertiary)]" />
+            <div className="relative flex items-center">
+              <Search className="w-4 h-4 absolute left-3 text-[var(--cv-text-tertiary)] pointer-events-none z-10" />
               <input
                 type="text"
                 value={search}
@@ -301,14 +301,14 @@ export default function Report() {
                   setCurrentPage(1)
                 }}
                 placeholder="Tên, mã nhân viên..."
-                className="cv-input pl-9 text-xs"
+                className="cv-input has-icon-left !pl-10 text-xs font-medium"
               />
             </div>
           </div>
 
           {/* Start Date */}
           <div>
-            <label className="block text-xs font-semibold text-[var(--cv-text-secondary)] mb-1">
+            <label className="block text-xs font-bold text-[var(--cv-text-primary)] mb-1">
               Từ ngày
             </label>
             <input
@@ -318,13 +318,13 @@ export default function Report() {
                 setStartDate(e.target.value)
                 setActivePreset('custom')
               }}
-              className="cv-input text-xs"
+              className="cv-input text-xs font-medium"
             />
           </div>
 
           {/* End Date */}
           <div>
-            <label className="block text-xs font-semibold text-[var(--cv-text-secondary)] mb-1">
+            <label className="block text-xs font-bold text-[var(--cv-text-primary)] mb-1">
               Đến ngày
             </label>
             <input
@@ -334,13 +334,13 @@ export default function Report() {
                 setEndDate(e.target.value)
                 setActivePreset('custom')
               }}
-              className="cv-input text-xs"
+              className="cv-input text-xs font-medium"
             />
           </div>
 
           {/* Status Filter */}
           <div>
-            <label className="block text-xs font-semibold text-[var(--cv-text-secondary)] mb-1">
+            <label className="block text-xs font-bold text-[var(--cv-text-primary)] mb-1">
               Trạng thái
             </label>
             <select
@@ -349,9 +349,9 @@ export default function Report() {
               className="cv-input text-xs cursor-pointer font-medium"
             >
               <option value="ALL">Tất cả trạng thái</option>
-              <option value="accepted">Thành công (Accepted)</option>
-              <option value="pending">Chờ duyệt (Pending)</option>
-              <option value="rejected">Từ chối (Rejected)</option>
+              <option value="ACCEPTED">Thành công (Accepted)</option>
+              <option value="PENDING">Chờ duyệt (Pending)</option>
+              <option value="REJECTED">Từ chối (Rejected)</option>
             </select>
           </div>
         </div>
@@ -410,7 +410,7 @@ export default function Report() {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="border-b border-[var(--cv-border-default)] bg-[var(--cv-bg-surface-elevated)] text-[var(--cv-text-tertiary)] uppercase tracking-wider font-bold">
+                <tr className="border-b border-[var(--cv-border-default)] bg-[var(--cv-bg-surface-elevated)] text-[var(--cv-text-primary)] uppercase tracking-wider font-bold text-[11px]">
                   <th className="py-3 px-5">Nhân viên</th>
                   <th className="py-3 px-4">Camera</th>
                   <th className="py-3 px-4">Thời gian ghi nhận</th>

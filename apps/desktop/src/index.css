@@ -10,21 +10,22 @@
    ================================================================ */
 
 :root {
-  /* ── Color Palette ── */
-  --cv-brand-50: #f2f6f8;
-  --cv-brand-100: #e6ebee;
-  --cv-brand-200: #cbd9df;
-  --cv-brand-300: #9fb9c5;
-  --cv-brand-400: #4a91a8;
-  --cv-brand-500: #1c6e8c;
-  --cv-brand-600: #175f79;
-  --cv-brand-700: #124e66;
-  --cv-brand-800: #0d3c50;
-  --cv-brand-900: #0d1b2a;
+  /* ── Color Palette (CovaSol Brand Scheme) ── */
+  --cv-brand-50: #edf5fd;
+  --cv-brand-100: #d6e8fb;
+  --cv-brand-200: #b2d5f8;
+  --cv-brand-300: #7ebbf4;
+  --cv-brand-400: #33b1ff; /* CovaSol Vivid Sky Blue */
+  --cv-brand-500: #156fe0;
+  --cv-brand-600: #0e4f9a; /* CovaSol Primary Royal Navy Blue */
+  --cv-brand-700: #0b3e7a;
+  --cv-brand-800: #093364;
+  --cv-brand-900: #0a2544;
+  --cv-brand-950: #06162a;
 
-  --cv-accent-400: #a5b452;
-  --cv-accent-500: #2e8b57;
-  --cv-accent-600: #247346;
+  --cv-accent-400: #fbbf24;
+  --cv-accent-500: #f9a826; /* CovaSol Warm Golden Amber */
+  --cv-accent-600: #d97706;
 
   --cv-danger-400: #f87171;
   --cv-danger-500: #ef4444;
@@ -33,44 +34,44 @@
   --cv-warning-400: #fbbf24;
   --cv-warning-500: #f59e0b;
 
-  --cv-cyan-400: #22d3ee;
-  --cv-cyan-500: #06b6d4;
+  --cv-cyan-400: #38bdf8;
+  --cv-cyan-500: #0284c7;
 
   --cv-violet-400: #a78bfa;
   --cv-violet-500: #8b5cf6;
 
   /* ── Semantic Light Theme ── */
-  --cv-bg-page: #f8f9fa;
+  --cv-bg-page: #f8fafc;
   --cv-bg-surface: #ffffff;
-  --cv-bg-surface-elevated: #ffffff;
-  --cv-bg-surface-hover: #e6ebee;
+  --cv-bg-surface-elevated: #f1f5f9;
+  --cv-bg-surface-hover: #e2e8f0;
   --cv-bg-sidebar: #ffffff;
   --cv-bg-input: #ffffff;
-  --cv-bg-muted: #f2f6f8;
-  --cv-bg-overlay: rgba(15, 23, 42, 0.45);
+  --cv-bg-muted: #f1f5f9;
+  --cv-bg-overlay: rgba(15, 23, 42, 0.55);
 
-  --cv-border-default: #dee2e6;
-  --cv-border-light: #e9ecef;
-  --cv-border-input: #ced4da;
-  --cv-border-focus: var(--cv-brand-500);
+  --cv-border-default: #e2e8f0;
+  --cv-border-light: #f1f5f9;
+  --cv-border-input: #cbd5e1;
+  --cv-border-focus: var(--cv-brand-600);
 
-  --cv-text-primary: #0d1b2a;
-  --cv-text-secondary: #495057;
-  --cv-text-tertiary: #6c757d;
+  --cv-text-primary: #0f172a;    /* High contrast Slate-900 */
+  --cv-text-secondary: #334155;  /* Clear Slate-700 */
+  --cv-text-tertiary: #64748b;   /* Slate-500 */
   --cv-text-inverse: #ffffff;
   --cv-text-brand: var(--cv-brand-600);
   --cv-text-danger: var(--cv-danger-600);
   --cv-text-accent: var(--cv-accent-600);
 
-  --cv-shadow-sm: 0 2px 4px rgba(13, 27, 42, 0.1);
-  --cv-shadow-md: 0 4px 12px rgba(13, 27, 42, 0.15);
-  --cv-shadow-lg: 0 8px 32px rgba(13, 27, 42, 0.2);
-  --cv-shadow-xl: 0 16px 64px rgba(13, 27, 42, 0.25);
-  --cv-shadow-glow: 0 0 20px -5px rgba(28, 110, 140, 0.3);
+  --cv-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08);
+  --cv-shadow-md: 0 4px 14px rgba(15, 23, 42, 0.08);
+  --cv-shadow-lg: 0 10px 28px rgba(15, 23, 42, 0.12);
+  --cv-shadow-xl: 0 20px 48px rgba(15, 23, 42, 0.16);
+  --cv-shadow-glow: 0 0 24px -4px rgba(14, 79, 154, 0.35);
 
   /* ── Glass Effects ── */
-  --cv-glass-bg: rgba(255, 255, 255, 0.85);
-  --cv-glass-border: rgba(255, 255, 255, 0.5);
+  --cv-glass-bg: rgba(255, 255, 255, 0.90);
+  --cv-glass-border: rgba(226, 232, 240, 0.85);
   --cv-glass-blur: blur(16px);
 
   /* ── Spacing Scale ── */
@@ -115,38 +116,38 @@
   --topbar-height: var(--cv-topbar-height);
 }
 
-/* ── Dark Theme ── */
+/* ── Dark Theme (CovaSol Deep Navy Scheme) ── */
 [data-theme="dark"] {
-  --cv-bg-page: #07131d;
-  --cv-bg-surface: #0d1b2a;
-  --cv-bg-surface-elevated: #124e66;
-  --cv-bg-surface-hover: #173c4c;
-  --cv-bg-sidebar: #091923;
-  --cv-bg-input: #102b39;
-  --cv-bg-muted: #102b39;
-  --cv-bg-overlay: rgba(0, 0, 0, 0.6);
+  --cv-bg-page: #0b132b;
+  --cv-bg-surface: #111d38;
+  --cv-bg-surface-elevated: #162447;
+  --cv-bg-surface-hover: #1e305e;
+  --cv-bg-sidebar: #0e1731;
+  --cv-bg-input: #162447;
+  --cv-bg-muted: #162447;
+  --cv-bg-overlay: rgba(0, 0, 0, 0.75);
 
-  --cv-border-default: #285062;
-  --cv-border-light: #183342;
-  --cv-border-input: #386174;
+  --cv-border-default: #22335e;
+  --cv-border-light: #1a284c;
+  --cv-border-input: #2e447b;
   --cv-border-focus: var(--cv-brand-400);
 
-  --cv-text-primary: #f1f5f9;
-  --cv-text-secondary: #94a3b8;
-  --cv-text-tertiary: #64748b;
-  --cv-text-inverse: #0f172a;
+  --cv-text-primary: #f8fafc;
+  --cv-text-secondary: #cbd5e1;
+  --cv-text-tertiary: #94a3b8;
+  --cv-text-inverse: #0b132b;
   --cv-text-brand: var(--cv-brand-400);
   --cv-text-danger: var(--cv-danger-400);
   --cv-text-accent: var(--cv-accent-400);
 
-  --cv-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
-  --cv-shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
-  --cv-shadow-lg: 0 10px 30px -5px rgba(0, 0, 0, 0.5);
-  --cv-shadow-xl: 0 20px 50px -10px rgba(0, 0, 0, 0.6);
-  --cv-shadow-glow: 0 0 25px -5px rgba(59, 130, 246, 0.4);
+  --cv-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --cv-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.5);
+  --cv-shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.6);
+  --cv-shadow-xl: 0 20px 50px rgba(0, 0, 0, 0.7);
+  --cv-shadow-glow: 0 0 25px -4px rgba(51, 177, 255, 0.4);
 
-  --cv-glass-bg: rgba(15, 23, 42, 0.75);
-  --cv-glass-border: rgba(30, 45, 74, 0.5);
+  --cv-glass-bg: rgba(17, 29, 56, 0.85);
+  --cv-glass-border: rgba(46, 68, 123, 0.5);
 }
 
 /* ================================================================
@@ -250,6 +251,7 @@ body {
   border-radius: var(--cv-radius-lg);
   color: var(--cv-text-primary);
   font-size: 0.875rem;
+  font-weight: 500;
   outline: none;
   transition: border-color var(--cv-transition-fast),
               box-shadow var(--cv-transition-fast);
@@ -257,11 +259,27 @@ body {
 
 .cv-input:focus {
   border-color: var(--cv-border-focus);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  box-shadow: 0 0 0 3px rgba(14, 79, 154, 0.18);
 }
 
 .cv-input::placeholder {
   color: var(--cv-text-tertiary);
+  opacity: 0.85;
+}
+
+/* Đảm bảo icon bên trong textbox không bao giờ đè lên chữ */
+.cv-input.has-icon-left,
+.cv-input.pl-9,
+.cv-input.pl-10,
+.cv-input.pl-11 {
+  padding-left: 2.625rem !important;
+}
+
+.cv-input.has-icon-right,
+.cv-input.pr-9,
+.cv-input.pr-10,
+.cv-input.pr-11 {
+  padding-right: 2.625rem !important;
 }
 
 /* ── Button ── */
@@ -296,12 +314,12 @@ body {
 .cv-btn-primary {
   background: linear-gradient(135deg, var(--cv-brand-600), var(--cv-brand-700));
   color: var(--cv-text-inverse);
-  box-shadow: 0 2px 8px -2px rgba(37, 99, 235, 0.4);
+  box-shadow: 0 2px 8px -2px rgba(14, 79, 154, 0.4);
 }
 
 .cv-btn-primary:hover:not(:disabled) {
   background: linear-gradient(135deg, var(--cv-brand-500), var(--cv-brand-600));
-  box-shadow: 0 4px 16px -3px rgba(37, 99, 235, 0.5);
+  box-shadow: 0 4px 16px -3px rgba(14, 79, 154, 0.5);
   transform: translateY(-1px);
 }
 
@@ -409,7 +427,7 @@ body {
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, var(--cv-brand-500), var(--cv-cyan-500));
+  background: linear-gradient(90deg, var(--cv-brand-600), var(--cv-brand-400));
   opacity: 0;
   transition: opacity var(--cv-transition-normal);
 }
@@ -443,13 +461,15 @@ body {
 }
 
 .cv-sidebar-link.active {
-  background: rgba(59, 130, 246, 0.1);
+  background: rgba(14, 79, 154, 0.12);
   color: var(--cv-brand-600);
+  font-weight: 700;
 }
 
 [data-theme="dark"] .cv-sidebar-link.active {
-  background: rgba(59, 130, 246, 0.15);
+  background: rgba(51, 177, 255, 0.15);
   color: var(--cv-brand-400);
+  font-weight: 700;
 }
 
 /* ================================================================

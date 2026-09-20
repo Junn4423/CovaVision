@@ -81,8 +81,16 @@ Write-Say "Nang cap pip va cai dat backend dependencies..."
 if ($LASTEXITCODE -ne 0) { Write-Fail "Cai dat backend dependencies that bai." }
 
 # Cai dat them cac thu vien vision
-Write-Say "Cai dat thu vien vision (numpy, opencv, pillow, onnxruntime)..."
-& $VenvPython -m pip install numpy opencv-python-headless Pillow onnxruntime
+Write-Say "Cai dat thu vien vision (numpy, opencv, pillow, onnxruntime, insightface)..."
+& $VenvPython -m pip install numpy opencv-python-headless Pillow onnxruntime insightface
+if ($LASTEXITCODE -ne 0) { Write-Fail "Cai dat vision dependencies that bai." }
+
+# Khoi dong va cache AI model (buffalo_s)
+Write-Say "Kiem tra va khoi tao AI model nhan dien khuon mat (buffalo_s)..."
+& $VenvPython -c "from app.recognition.face_recognition_module import FaceRecognition; FaceRecognition()"
+if ($LASTEXITCODE -ne 0) {
+    Write-Say "Luu y: Model se duoc tu dong tai ve o lan khoi dong he thong tiep theo."
+}
 
 # 6. Cai dat Desktop dependencies
 Write-Say "Cai dat Desktop Electron dependencies..."

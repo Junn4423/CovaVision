@@ -4,6 +4,18 @@ import { api } from '../services/api'
 import { openBackendMjpegStream } from '../services/backendMjpegStream'
 import { useToast } from './Toast'
 
+const DEFAULT_DEVICE_CAMERA = {
+  id: '__device_default__',
+  name: 'Webcam mặc định của thiết bị (Tích hợp)',
+  camera_type: 'browser',
+  camera_options: {
+    facing_mode: 'user',
+    frame_width: 1280,
+    frame_height: 720,
+    target_fps: 30,
+  },
+}
+
 function isBrowserCameraType(cameraType) {
   return cameraType === 'browser' || cameraType === 'mobile'
 }
@@ -52,8 +64,8 @@ export default function EmployeeRegistrationModal({
   const [department, setDepartment] = useState('')
   const [position, setPosition] = useState('')
   const [capturedBase64, setCapturedBase64] = useState('')
-  const [cameras, setCameras] = useState([])
-  const [selectedCameraId, setSelectedCameraId] = useState('')
+  const [cameras, setCameras] = useState([DEFAULT_DEVICE_CAMERA])
+  const [selectedCameraId, setSelectedCameraId] = useState(DEFAULT_DEVICE_CAMERA.id)
   const [runtimeMode, setRuntimeMode] = useState(null)
   const [cameraActive, setCameraActive] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -76,19 +88,51 @@ export default function EmployeeRegistrationModal({
 
     async function initializeCamera() {
       try {
-        const response = await api.getCameras()
-        const available = Array.isArray(response?.cameras) ? response.cameras : []
-        if (cancelled) return
-        setCameras(available)
-        const preferred = initialEmployee?.camera_id || available.find(item => item.is_default)?.id || available[0]?.id || ''
-        setSelectedCameraId(preferred)
-        if (!preferred) {
-          setCameraError('Chưa có camera trong bảng cấu hình. Hãy thêm camera trước khi đăng ký khuôn mặt.')
-          return
+        let localCameras = [DEFAULT_DEVICE_CAMERA]
+        if (typeof navigator !== 'undefined' && navigator.mediaDevices?.enumerateDevices) {
+          try {
+            const devices = await navigator.mediaDevices.enumerateDevices()
+            const videoDevices = devices.filter(d => d.kind === 'videoinput')
+            if (videoDevices.length > 0) {
+              localCameras = videoDevices.map((dev, idx) => ({
+                id: `__local_dev_${dev.deviceId || idx}`,
+                name: dev.label || `Webcam ${idx + 1}`,
+                camera_type: 'browser',
+                camera_options: {
+                  browser_device_id: dev.deviceId,
+                  facing_mode: 'user',
+                  frame_width: 1280,
+                  frame_height: 720,
+                },
+              }))
+            }
+          } catch (devErr) {
+            console.warn('Không thể dò thiết bị video:', devErr)
+          }
         }
-        await startCamera(available.find(item => item.id === preferred))
+
+        let backendCameras = []
+        try {
+          const response = await api.getCameras()
+          backendCameras = Array.isArray(response?.cameras) ? response.cameras : []
+        } catch (apiErr) {
+          console.warn('Không thể tải camera từ backend:', apiErr)
+        }
+
+        if (cancelled) return
+
+        const combined = [...localCameras, ...backendCameras]
+        setCameras(combined)
+
+        const preferred = (initialEmployee?.camera_id && combined.find(c => c.id === initialEmployee.camera_id)?.id)
+          || combined[0]?.id
+          || DEFAULT_DEVICE_CAMERA.id
+
+        setSelectedCameraId(preferred)
+        const targetCamera = combined.find(c => c.id === preferred) || localCameras[0] || DEFAULT_DEVICE_CAMERA
+        await startCamera(targetCamera)
       } catch (error) {
-        if (!cancelled) setCameraError(error?.message || 'Không tải được danh sách camera từ backend.')
+        if (!cancelled) setCameraError(error?.message || 'Không khởi động được camera.')
       }
     }
 
@@ -117,7 +161,7 @@ export default function EmployeeRegistrationModal({
     activeCameraIdRef.current = ''
     setRuntimeMode(null)
     setCameraActive(false)
-    if (mode === 'backend' && cameraId) {
+    if (mode === 'backend' && cameraId && !cameraId.startsWith('__')) {
       try {
         await api.stopCamera(cameraId)
       } catch {
@@ -130,19 +174,22 @@ export default function EmployeeRegistrationModal({
     setCameraError('')
     try {
       await stopCamera()
-      if (!camera?.id) throw new Error('Camera chưa có mã cấu hình.')
+      if (!camera) throw new Error('Chưa chọn camera.')
       activeCameraIdRef.current = camera.id
 
-      if (isBrowserCameraType(camera.camera_type)) {
-        if (!navigator.mediaDevices?.getUserMedia) throw new Error('Thiết bị hiện tại không hỗ trợ camera trình duyệt.')
-        const stream = await navigator.mediaDevices.getUserMedia(buildBrowserConstraints(camera))
+      if (isBrowserCameraType(camera.camera_type) || String(camera.id).startsWith('__')) {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error('Thiết bị hiện tại không hỗ trợ truy cập webcam từ trình duyệt.')
+        }
+        const constraints = buildBrowserConstraints(camera)
+        const stream = await navigator.mediaDevices.getUserMedia(constraints)
         streamRef.current = stream
         runtimeModeRef.current = 'browser'
         setRuntimeMode('browser')
         setCameraActive(true)
         if (videoRef.current) {
           videoRef.current.srcObject = stream
-          await videoRef.current.play()
+          await videoRef.current.play().catch(() => {})
         }
         return
       }
@@ -175,7 +222,7 @@ export default function EmployeeRegistrationModal({
       activeCameraIdRef.current = ''
       runtimeModeRef.current = null
       setRuntimeMode(null)
-      setCameraError(err?.message || 'Không thể mở camera. Vui lòng kiểm tra camera đã cấu hình.')
+      setCameraError(err?.message || 'Không thể mở camera. Vui lòng cấp quyền truy cập webcam trên thiết bị.')
       setCameraActive(false)
     }
   }
@@ -249,10 +296,19 @@ export default function EmployeeRegistrationModal({
         department: department.trim(),
         position: position.trim(),
         image_base64: capturedBase64,
-        camera_id: selectedCameraId || undefined,
+        camera_id: (selectedCameraId && !selectedCameraId.startsWith('__')) ? selectedCameraId : undefined,
       }
 
-      const isExisting = Boolean(initialEmployee?.registered)
+      const isExisting = Boolean(initialEmployee?.registered || initialEmployee?.id)
+      if (!isExisting) {
+        // Ensure employee record exists before attaching face
+        await api.registerEmployee(normId, {
+          name: normName,
+          department: department.trim(),
+          position: position.trim(),
+        }).catch(() => {})
+      }
+
       let res = isExisting
         ? await api.updateFaceBase64({ ...payload, replace_all: true })
         : await api.registerBase64(payload)
@@ -280,17 +336,17 @@ export default function EmployeeRegistrationModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl overflow-y-auto max-h-[92vh]">
+      <div className="w-full max-w-2xl rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-2xl overflow-y-auto max-h-[92vh]">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
           <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-blue-700">COVAVISION BIOMETRIC AI</span>
-            <h2 className="text-xl font-black text-slate-900">Đăng ký khuôn mặt nhân viên</h2>
+            <span className="text-xs font-bold uppercase tracking-wider text-[#0E4F9A] dark:text-[#33B1FF]">COVAVISION BIOMETRIC AI</span>
+            <h2 className="text-xl font-black text-slate-900 dark:text-slate-100">Đăng ký khuôn mặt nhân viên</h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
           >
             <X size={18} />
           </button>
@@ -300,7 +356,7 @@ export default function EmployeeRegistrationModal({
           {/* Employee Info inputs */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+              <label className="block text-xs font-bold uppercase text-slate-700 dark:text-slate-300 mb-1">
                 Mã nhân viên <span className="text-red-500">*</span>
               </label>
               <input
@@ -309,12 +365,12 @@ export default function EmployeeRegistrationModal({
                 onChange={e => setEmployeeId(e.target.value)}
                 placeholder="VD: NV001"
                 required
-                className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2 text-sm font-semibold focus:border-blue-600 focus:bg-white focus:outline-none"
+                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3.5 py-2 text-sm font-semibold text-slate-900 dark:text-slate-100 focus:border-[#0E4F9A] focus:bg-white dark:focus:bg-slate-900 focus:outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+              <label className="block text-xs font-bold uppercase text-slate-700 dark:text-slate-300 mb-1">
                 Họ và tên <span className="text-red-500">*</span>
               </label>
               <input
@@ -323,70 +379,81 @@ export default function EmployeeRegistrationModal({
                 onChange={e => setName(e.target.value)}
                 placeholder="VD: Nguyễn Văn A"
                 required
-                className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2 text-sm font-semibold focus:border-blue-600 focus:bg-white focus:outline-none"
+                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3.5 py-2 text-sm font-semibold text-slate-900 dark:text-slate-100 focus:border-[#0E4F9A] focus:bg-white dark:focus:bg-slate-900 focus:outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Phòng ban</label>
+              <label className="block text-xs font-bold uppercase text-slate-700 dark:text-slate-300 mb-1">Phòng ban</label>
               <input
                 type="text"
                 value={department}
                 onChange={e => setDepartment(e.target.value)}
                 placeholder="VD: Kỹ thuật"
-                className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2 text-sm focus:border-blue-600 focus:bg-white focus:outline-none"
+                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-[#0E4F9A] focus:bg-white dark:focus:bg-slate-900 focus:outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Chức vụ</label>
+              <label className="block text-xs font-bold uppercase text-slate-700 dark:text-slate-300 mb-1">Chức vụ</label>
               <input
                 type="text"
                 value={position}
                 onChange={e => setPosition(e.target.value)}
                 placeholder="VD: Nhân viên"
-                className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2 text-sm focus:border-blue-600 focus:bg-white focus:outline-none"
+                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-[#0E4F9A] focus:bg-white dark:focus:bg-slate-900 focus:outline-none"
               />
             </div>
           </div>
 
-          <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-3.5 space-y-2">
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+          <div className="rounded-2xl border border-blue-100 dark:border-blue-900/40 bg-blue-50/60 dark:bg-slate-800/60 p-3.5 space-y-2">
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
               Camera đăng ký
             </label>
             <select
               value={selectedCameraId}
               onChange={handleCameraChange}
-              disabled={!cameras.length}
-              className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-500 disabled:opacity-60"
+              className="w-full rounded-xl border border-blue-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2.5 text-sm font-semibold text-slate-800 dark:text-slate-100 outline-none focus:border-[#0E4F9A] cursor-pointer"
             >
-              {!cameras.length && <option value="">Chưa có camera đã cấu hình</option>}
-              {cameras.map(camera => (
-                <option key={camera.id} value={camera.id}>
-                  {camera.name} · {camera.camera_type === 'rtsp' ? 'RTSP backend' : 'Thiết bị'}
-                </option>
-              ))}
+              <optgroup label="Webcam thiết bị (Cục bộ)">
+                {cameras.filter(c => c.camera_type === 'browser' || String(c.id).startsWith('__')).map(camera => (
+                  <option key={camera.id} value={camera.id}>
+                    📷 {camera.name}
+                  </option>
+                ))}
+              </optgroup>
+              {cameras.some(c => c.camera_type !== 'browser' && !String(c.id).startsWith('__')) && (
+                <optgroup label="Camera máy chủ (RTSP / NVR)">
+                  {cameras.filter(c => c.camera_type !== 'browser' && !String(c.id).startsWith('__')).map(camera => (
+                    <option key={camera.id} value={camera.id}>
+                      🌐 {camera.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
-            <p className="text-xs text-blue-700">
-              {cameraActive
-                ? `Đang dùng ${cameras.find(item => item.id === selectedCameraId)?.name || 'camera đã chọn'} (${runtimeMode === 'backend' ? 'proxy backend' : 'camera thiết bị'}).`
-                : 'Chọn camera trong bảng cấu hình rồi bấm bật lại nếu cần.'}
-            </p>
-            {cameraActive && (
-              <button
-                type="button"
-                onClick={() => void startCamera(cameras.find(item => item.id === selectedCameraId))}
-                className="rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100"
-              >
-                Bật lại camera
-              </button>
-            )}
+            <div className="flex items-center justify-between text-xs text-blue-700 dark:text-blue-400">
+              <span>
+                {cameraActive
+                  ? `Đang dùng: ${cameras.find(item => item.id === selectedCameraId)?.name || 'Webcam'} (${runtimeMode === 'backend' ? 'proxy backend' : 'webcam thiết bị'}).`
+                  : 'Chưa kích hoạt camera.'}
+              </span>
+              {cameraActive && (
+                <button
+                  type="button"
+                  onClick={() => void startCamera(cameras.find(item => item.id === selectedCameraId))}
+                  className="rounded-lg border border-blue-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1 text-xs font-bold text-blue-700 dark:text-blue-300 hover:bg-blue-50"
+                >
+                  Bật lại camera
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Camera Capture or Upload */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
                 Ảnh khuôn mặt nhận diện
               </span>
               <div className="flex items-center gap-2">
@@ -400,7 +467,7 @@ export default function EmployeeRegistrationModal({
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
                 >
                   <Upload size={13} />
                   <span>Chọn ảnh từ máy</span>
@@ -410,7 +477,7 @@ export default function EmployeeRegistrationModal({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
               {/* Webcam stream */}
-              <div className="relative aspect-[4/3] rounded-2xl overflow-hidden bg-slate-900 flex items-center justify-center border border-slate-200">
+              <div className="relative aspect-[4/3] rounded-2xl overflow-hidden bg-slate-900 flex items-center justify-center border border-slate-200 dark:border-slate-700 shadow-inner">
                 {runtimeMode === 'backend' ? (
                   <img
                     ref={imageRef}
@@ -430,7 +497,7 @@ export default function EmployeeRegistrationModal({
 
                 {/* Face Oval Guide */}
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <div className="h-[75%] w-[65%] rounded-[45%] border-2 border-dashed border-cyan-400/80 shadow-[0_0_15px_rgba(34,211,238,0.4)]" />
+                  <div className="h-[75%] w-[65%] rounded-[45%] border-2 border-dashed border-[#33B1FF] shadow-[0_0_15px_rgba(51,177,255,0.4)]" />
                 </div>
 
                 <div className="absolute bottom-2.5 left-2.5 right-2.5 flex justify-center">
@@ -438,7 +505,7 @@ export default function EmployeeRegistrationModal({
                     type="button"
                     onClick={handleCaptureFromWebcam}
                     disabled={!cameraActive}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-cyan-500 hover:bg-cyan-600 px-4 py-1.5 text-xs font-black text-slate-900 shadow-md transition-all active:scale-95"
+                    className="inline-flex items-center gap-1.5 rounded-full bg-[#33B1FF] hover:bg-[#156FE0] px-4 py-1.5 text-xs font-black text-slate-950 shadow-md transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
                   >
                     <Camera size={14} />
                     <span>Chụp ảnh ngay</span>
@@ -447,7 +514,7 @@ export default function EmployeeRegistrationModal({
               </div>
 
               {/* Preview captured photo */}
-              <div className="aspect-[4/3] rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center p-3 overflow-hidden text-center relative">
+              <div className="aspect-[4/3] rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex flex-col items-center justify-center p-3 overflow-hidden text-center relative">
                 {capturedBase64 ? (
                   <>
                     <img
@@ -461,27 +528,27 @@ export default function EmployeeRegistrationModal({
                   </>
                 ) : (
                   <div className="text-slate-400 space-y-1">
-                    <User size={32} className="mx-auto text-slate-300" />
-                    <p className="text-xs font-semibold text-slate-500">Chưa có ảnh chụp</p>
-                    <p className="text-[11px] text-slate-400">Bấm "Chụp ảnh ngay" hoặc tải ảnh chân dung</p>
+                    <User size={32} className="mx-auto text-slate-300 dark:text-slate-600" />
+                    <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">Chưa có ảnh chụp</p>
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500">Bấm "Chụp ảnh ngay" hoặc tải ảnh chân dung</p>
                   </div>
                 )}
               </div>
             </div>
 
             {cameraError && (
-              <p className="text-xs font-medium text-red-600 bg-red-50 p-2.5 rounded-xl border border-red-100">
+              <p className="text-xs font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 p-2.5 rounded-xl border border-red-100 dark:border-red-900/40">
                 {cameraError}
               </p>
             )}
           </div>
 
           {/* Footer submit */}
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+              className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
             >
               Hủy
             </button>
@@ -489,7 +556,7 @@ export default function EmployeeRegistrationModal({
             <button
               type="submit"
               disabled={submitting || !capturedBase64}
-              className="inline-flex items-center gap-2 rounded-xl bg-blue-700 px-6 py-2.5 text-xs font-bold text-white shadow-md hover:bg-blue-800 transition-all disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-xl bg-[#0E4F9A] hover:bg-[#0B3E7A] px-6 py-2.5 text-xs font-bold text-white shadow-md transition-all disabled:opacity-50 cursor-pointer"
             >
               {submitting ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={15} />}
               <span>{submitting ? 'Đang trích xuất & lưu...' : 'Lưu khuôn mặt'}</span>

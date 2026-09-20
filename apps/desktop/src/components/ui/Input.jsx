@@ -21,21 +21,21 @@ export const Input = forwardRef(function Input(
       {label && (
         <label
           htmlFor={inputId}
-          className="block text-xs font-semibold text-[var(--cv-text-secondary)] mb-1.5"
+          className="block text-xs font-bold text-[var(--cv-text-primary)] mb-1.5"
         >
           {label}
         </label>
       )}
       <div className="relative flex items-center">
         {Icon && (
-          <div className="absolute left-3 text-[var(--cv-text-tertiary)] pointer-events-none flex items-center">
+          <div className="absolute left-3 text-[var(--cv-text-tertiary)] pointer-events-none flex items-center z-10">
             <Icon className="w-4 h-4" />
           </div>
         )}
         <input
           id={inputId}
           ref={ref}
-          className={`cv-input ${Icon ? 'pl-9' : ''} ${IconRight ? 'pr-9' : ''} ${
+          className={`cv-input ${Icon ? 'has-icon-left !pl-10' : ''} ${IconRight ? 'has-icon-right !pr-10' : ''} ${
             error ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : ''
           } ${className}`}
           {...props}

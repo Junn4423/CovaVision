@@ -106,6 +106,27 @@ def _subscription_expired(value: Any) -> bool:
         return False
 
 
+def _parse_filter_datetime(val: Any, is_end: bool = False) -> datetime | None:
+    if not val:
+        return None
+    if isinstance(val, datetime):
+        return val if val.tzinfo is not None else val.replace(tzinfo=timezone.utc)
+    val_str = str(val).strip()
+    if not val_str:
+        return None
+    try:
+        if len(val_str) == 10:  # YYYY-MM-DD
+            time_part = "23:59:59.999999" if is_end else "00:00:00"
+            return datetime.fromisoformat(f"{val_str}T{time_part}").replace(tzinfo=timezone.utc)
+        clean = val_str.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(clean)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (TypeError, ValueError):
+        return None
+
+
 class InMemoryRepository:
     """Small repository used by contract tests and explicit demo mode."""
 
@@ -458,17 +479,18 @@ class InMemoryRepository:
             items = [item for item in items if item.get("employee_id") == employee_id]
         start_date = filters.get("start_date")
         if start_date:
-            items = [item for item in items if str(item.get("captured_at", "")) >= str(start_date)]
+            start_str = str(start_date)[:10]
+            items = [item for item in items if str(item.get("captured_at", ""))[:10] >= start_str]
         end_date = filters.get("end_date")
         if end_date:
-            # Append end of day if just a date string (YYYY-MM-DD)
             end_limit = str(end_date)
             if len(end_limit) == 10:
                 end_limit += "T23:59:59.999999"
             items = [item for item in items if str(item.get("captured_at", "")) <= end_limit]
         status = filters.get("status")
         if status and status != "ALL":
-            items = [item for item in items if item.get("status") == status]
+            status_norm = str(status).strip().upper()
+            items = [item for item in items if str(item.get("status", "")).upper() == status_norm]
         return items
 
     async def get_settings(self, key: str | None = None) -> dict[str, Any]:
@@ -977,20 +999,21 @@ class PrismaRepository(PrismaBillingMixin):
 
         start_date = filters.get("start_date")
         end_date = filters.get("end_date")
-        if start_date or end_date:
+        start_dt = _parse_filter_datetime(start_date, is_end=False)
+        end_dt = _parse_filter_datetime(end_date, is_end=True)
+        if start_dt or end_dt:
             captured_at_filter: dict[str, Any] = {}
-            if start_date:
-                captured_at_filter["gte"] = str(start_date)
-            if end_date:
-                end_limit = str(end_date)
-                if len(end_limit) == 10:
-                    end_limit += "T23:59:59.999999"
-                captured_at_filter["lte"] = end_limit
+            if start_dt:
+                captured_at_filter["gte"] = start_dt
+            if end_dt:
+                captured_at_filter["lte"] = end_dt
             where["capturedAt"] = captured_at_filter
 
         status = filters.get("status")
         if status and status != "ALL":
-            where["status"] = status
+            status_norm = str(status).strip().upper()
+            if status_norm in {"ACCEPTED", "REJECTED", "PENDING"}:
+                where["status"] = status_norm
         records = await self.client.attendancerecord.find_many(
             where=where,
             order={"capturedAt": "desc"},

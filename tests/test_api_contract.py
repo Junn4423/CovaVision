@@ -373,3 +373,85 @@ def test_admin_contracts_cover_accounts_settings_and_report_export() -> None:
     export = client.get("/api/v1/reports/attendance/export", headers=headers)
     assert export.status_code == 200
     assert "employee_id" in export.text
+
+
+def test_register_face_existing_employee() -> None:
+    class FakeRecognizer:
+        @staticmethod
+        def encode_face_from_bytes(_bytes):
+            return [0.1] * 512, None
+
+    local_repository = InMemoryRepository()
+    local_repository.seed_user("reg.test", "test-password", role="ADMIN")
+    import asyncio
+    asyncio.run(local_repository.save_employee({"employee_id": "EMP-REG-1", "name": "Test User", "department": "IT"}))
+    local_app = create_app(repository=local_repository)
+    local_app.state.recognition_service = RecognitionService(
+        local_repository,
+        recognizer_factory=FakeRecognizer,
+    )
+    local_client = TestClient(local_app)
+    token = local_client.post(
+        "/api/v1/auth/login",
+        json={"username": "reg.test", "password": "test-password"},
+    ).json()["access_token"]
+
+    resp = local_client.post(
+        "/api/v1/employees/face",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "employee_id": "EMP-REG-1",
+            "image_base64": base64.b64encode(b"fake-face-image").decode("ascii"),
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+    assert resp.json()["employee"]["employee_id"] == "EMP-REG-1"
+    assert resp.json()["employee"]["has_face"] is True
+
+
+def test_register_face_new_employee_auto_creates() -> None:
+    class FakeRecognizer:
+        @staticmethod
+        def encode_face_from_bytes(_bytes):
+            return [0.2] * 512, None
+
+    local_repository = InMemoryRepository()
+    local_repository.seed_user("newreg.test", "test-password", role="ADMIN")
+    local_app = create_app(repository=local_repository)
+    local_app.state.recognition_service = RecognitionService(
+        local_repository,
+        recognizer_factory=FakeRecognizer,
+    )
+    local_client = TestClient(local_app)
+    token = local_client.post(
+        "/api/v1/auth/login",
+        json={"username": "newreg.test", "password": "test-password"},
+    ).json()["access_token"]
+
+    resp = local_client.post(
+        "/api/v1/employees/face",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "employee_id": "NV001",
+            "name": "Lương Ngọc Chung",
+            "department": "IT",
+            "position": "nhân viên",
+            "image_base64": base64.b64encode(b"fake-face-image").decode("ascii"),
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+    assert resp.json()["employee"]["employee_id"] == "NV001"
+    assert resp.json()["employee"]["name"] == "Lương Ngọc Chung"
+    assert resp.json()["employee"]["has_face"] is True
+
+
+def test_tts_audio_endpoint(monkeypatch) -> None:
+    monkeypatch.setattr("app.api.routes.tts._get_google_tts_bytes", lambda _text, _lang: b"fake-mp3-bytes")
+    resp = client.get("/api/v1/tts?text=Xin+chao")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "audio/mpeg"
+    assert resp.content == b"fake-mp3-bytes"
+
+
