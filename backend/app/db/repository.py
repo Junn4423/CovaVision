@@ -117,6 +117,14 @@ class Repository(Protocol):
 
     async def set_account_lock(self, account_id: str, is_locked: bool, organization_id: str | None = None) -> dict[str, Any]: ...
 
+    async def list_departments(self, organization_id: str | None = None) -> list[dict[str, Any]]: ...
+    async def save_department(self, payload: dict[str, Any]) -> dict[str, Any]: ...
+    async def delete_department(self, department_id: str, organization_id: str | None = None) -> bool: ...
+
+    async def list_positions(self, organization_id: str | None = None) -> list[dict[str, Any]]: ...
+    async def save_position(self, payload: dict[str, Any]) -> dict[str, Any]: ...
+    async def delete_position(self, position_id: str, organization_id: str | None = None) -> bool: ...
+
     async def list_cameras(self, organization_id: str | None = None) -> list[dict[str, Any]]: ...
 
     async def get_camera(self, camera_id: str, organization_id: str | None = None) -> dict[str, Any] | None: ...
@@ -295,6 +303,8 @@ class InMemoryRepository:
         self.users: dict[str, dict[str, Any]] = {}
         self.employees: dict[str, dict[str, Any]] = {}
         self.cameras: dict[str, dict[str, Any]] = {}
+        self.departments: dict[str, dict[str, Any]] = {}
+        self.positions: dict[str, dict[str, Any]] = {}
         self.attendance: list[dict[str, Any]] = []
         self.attendance_snapshots: list[dict[str, Any]] = []
         self.organization_id = organization_id
@@ -761,6 +771,98 @@ class InMemoryRepository:
         user["is_active"] = not is_locked
         return {key: value for key, value in user.items() if key != "password_hash"}
 
+    async def list_departments(self, organization_id: str | None = None) -> list[dict[str, Any]]:
+        result = []
+        for dept in self.departments.values():
+            if organization_id and str(dept.get("organization_id") or "") != str(organization_id):
+                continue
+            emp_count = sum(
+                1 for e in self.employees.values()
+                if (not organization_id or str(e.get("organization_id") or "") == str(organization_id))
+                and (
+                    e.get("department") == dept.get("name")
+                    or e.get("department_id") == dept.get("id")
+                    or e.get("department") == dept.get("code")
+                )
+            )
+            result.append({**dept, "employee_count": emp_count})
+        return sorted(result, key=lambda d: d.get("name", "").lower())
+
+    async def save_department(self, payload: dict[str, Any]) -> dict[str, Any]:
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            raise ValueError("Tên phòng ban không được để trống")
+        dept_id = str(payload.get("id") or "").strip() or str(uuid4())
+        code = str(payload.get("code") or "").strip() or f"DEPT_{dept_id[:6].upper()}"
+        organization_id = str(payload.get("organization_id") or self.organization_id)
+        current = self.departments.get(dept_id, {})
+        dept = {
+            **current,
+            "id": dept_id,
+            "name": name,
+            "code": code,
+            "description": str(payload.get("description") or current.get("description") or ""),
+            "organization_id": organization_id,
+            "created_at": current.get("created_at") or _now().isoformat(),
+            "updated_at": _now().isoformat(),
+        }
+        self.departments[dept_id] = dept
+        return dept
+
+    async def delete_department(self, department_id: str, organization_id: str | None = None) -> bool:
+        dept = self.departments.get(department_id)
+        if dept is None or (organization_id and str(dept.get("organization_id") or "") != str(organization_id)):
+            raise KeyError(department_id)
+        del self.departments[department_id]
+        return True
+
+    async def list_positions(self, organization_id: str | None = None) -> list[dict[str, Any]]:
+        result = []
+        for pos in self.positions.values():
+            if organization_id and str(pos.get("organization_id") or "") != str(organization_id):
+                continue
+            title = pos.get("title") or pos.get("name") or ""
+            emp_count = sum(
+                1 for e in self.employees.values()
+                if (not organization_id or str(e.get("organization_id") or "") == str(organization_id))
+                and (
+                    e.get("position") == title
+                    or e.get("position_id") == pos.get("id")
+                    or e.get("position") == pos.get("code")
+                )
+            )
+            result.append({**pos, "title": title, "name": title, "employee_count": emp_count})
+        return sorted(result, key=lambda p: (p.get("title") or "").lower())
+
+    async def save_position(self, payload: dict[str, Any]) -> dict[str, Any]:
+        title = str(payload.get("title") or payload.get("name") or "").strip()
+        if not title:
+            raise ValueError("Tên chức vụ không được để trống")
+        pos_id = str(payload.get("id") or "").strip() or str(uuid4())
+        code = str(payload.get("code") or "").strip() or f"POS_{pos_id[:6].upper()}"
+        organization_id = str(payload.get("organization_id") or self.organization_id)
+        current = self.positions.get(pos_id, {})
+        pos = {
+            **current,
+            "id": pos_id,
+            "title": title,
+            "name": title,
+            "code": code,
+            "description": str(payload.get("description") or current.get("description") or ""),
+            "organization_id": organization_id,
+            "created_at": current.get("created_at") or _now().isoformat(),
+            "updated_at": _now().isoformat(),
+        }
+        self.positions[pos_id] = pos
+        return pos
+
+    async def delete_position(self, position_id: str, organization_id: str | None = None) -> bool:
+        pos = self.positions.get(position_id)
+        if pos is None or (organization_id and str(pos.get("organization_id") or "") != str(organization_id)):
+            raise KeyError(position_id)
+        del self.positions[position_id]
+        return True
+
     async def list_cameras(self, organization_id: str | None = None) -> list[dict[str, Any]]:
         return [
             item for item in self.cameras.values()
@@ -1214,6 +1316,182 @@ class PrismaRepository(PrismaBillingMixin):
             data={"isActive": not is_locked},
         )
         return self._account_to_dict(updated)
+
+    async def list_departments(self, organization_id: str | None = None) -> list[dict[str, Any]]:
+        await self._ensure_connected()
+        where: dict[str, Any] = {"isActive": True}
+        if organization_id:
+            where["organizationId"] = organization_id
+        departments = await self.client.department.find_many(
+            where=where,
+            include={"employees": True},
+            order={"name": "asc"},
+        )
+        return [
+            {
+                "id": dept.id,
+                "code": dept.code,
+                "name": dept.name,
+                "description": "",
+                "is_active": dept.isActive,
+                "organization_id": dept.organizationId,
+                "employee_count": len(dept.employees) if dept.employees else 0,
+                "created_at": dept.createdAt.isoformat() if dept.createdAt else None,
+                "updated_at": dept.updatedAt.isoformat() if dept.updatedAt else None,
+            }
+            for dept in departments
+        ]
+
+    async def save_department(self, payload: dict[str, Any]) -> dict[str, Any]:
+        await self._ensure_connected()
+        requested_org_id = str(payload.get("organization_id") or payload.get("organizationId") or "").strip()
+        org = (
+            await self.client.organization.find_unique(where={"id": requested_org_id})
+            if requested_org_id
+            else await self._default_organization()
+        )
+        if not org:
+            raise KeyError(requested_org_id or "organization")
+
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            raise ValueError("Tên phòng ban không được để trống")
+
+        dept_id = str(payload.get("id") or "").strip()
+        current = None
+        if dept_id:
+            current = await self.client.department.find_unique(where={"id": dept_id})
+
+        code = str(payload.get("code") or "").strip()
+        if not code:
+            code = current.code if current else self._relation_code("DEPT", name)
+
+        data: dict[str, Any] = {
+            "name": name,
+            "code": code,
+            "isActive": payload.get("is_active", payload.get("isActive", True)) is not False,
+        }
+        if current:
+            dept = await self.client.department.update(
+                where={"id": current.id},
+                data=data,
+                include={"employees": True},
+            )
+        else:
+            data["organization"] = {"connect": {"id": org.id}}
+            dept = await self.client.department.create(
+                data=data,
+                include={"employees": True},
+            )
+
+        return {
+            "id": dept.id,
+            "code": dept.code,
+            "name": dept.name,
+            "description": "",
+            "is_active": dept.isActive,
+            "organization_id": dept.organizationId,
+            "employee_count": len(dept.employees) if dept.employees else 0,
+            "created_at": dept.createdAt.isoformat() if dept.createdAt else None,
+            "updated_at": dept.updatedAt.isoformat() if dept.updatedAt else None,
+        }
+
+    async def delete_department(self, department_id: str, organization_id: str | None = None) -> bool:
+        await self._ensure_connected()
+        current = await self.client.department.find_unique(where={"id": department_id})
+        if not current or (organization_id and current.organizationId != organization_id):
+            raise KeyError(department_id)
+        await self.client.department.delete(where={"id": department_id})
+        return True
+
+    async def list_positions(self, organization_id: str | None = None) -> list[dict[str, Any]]:
+        await self._ensure_connected()
+        where: dict[str, Any] = {"isActive": True}
+        if organization_id:
+            where["organizationId"] = organization_id
+        positions = await self.client.jobposition.find_many(
+            where=where,
+            include={"employees": True},
+            order={"name": "asc"},
+        )
+        return [
+            {
+                "id": pos.id,
+                "code": pos.code,
+                "name": pos.name,
+                "title": pos.name,
+                "description": "",
+                "is_active": pos.isActive,
+                "organization_id": pos.organizationId,
+                "employee_count": len(pos.employees) if pos.employees else 0,
+                "created_at": pos.createdAt.isoformat() if pos.createdAt else None,
+                "updated_at": pos.updatedAt.isoformat() if pos.updatedAt else None,
+            }
+            for pos in positions
+        ]
+
+    async def save_position(self, payload: dict[str, Any]) -> dict[str, Any]:
+        await self._ensure_connected()
+        requested_org_id = str(payload.get("organization_id") or payload.get("organizationId") or "").strip()
+        org = (
+            await self.client.organization.find_unique(where={"id": requested_org_id})
+            if requested_org_id
+            else await self._default_organization()
+        )
+        if not org:
+            raise KeyError(requested_org_id or "organization")
+
+        name = str(payload.get("name") or payload.get("title") or "").strip()
+        if not name:
+            raise ValueError("Tên chức vụ không được để trống")
+
+        pos_id = str(payload.get("id") or "").strip()
+        current = None
+        if pos_id:
+            current = await self.client.jobposition.find_unique(where={"id": pos_id})
+
+        code = str(payload.get("code") or "").strip()
+        if not code:
+            code = current.code if current else self._relation_code("POS", name)
+
+        data: dict[str, Any] = {
+            "name": name,
+            "code": code,
+            "isActive": payload.get("is_active", payload.get("isActive", True)) is not False,
+        }
+        if current:
+            pos = await self.client.jobposition.update(
+                where={"id": current.id},
+                data=data,
+                include={"employees": True},
+            )
+        else:
+            data["organization"] = {"connect": {"id": org.id}}
+            pos = await self.client.jobposition.create(
+                data=data,
+                include={"employees": True},
+            )
+
+        return {
+            "id": pos.id,
+            "code": pos.code,
+            "name": pos.name,
+            "title": pos.name,
+            "description": "",
+            "is_active": pos.isActive,
+            "organization_id": pos.organizationId,
+            "employee_count": len(pos.employees) if pos.employees else 0,
+            "created_at": pos.createdAt.isoformat() if pos.createdAt else None,
+            "updated_at": pos.updatedAt.isoformat() if pos.updatedAt else None,
+        }
+
+    async def delete_position(self, position_id: str, organization_id: str | None = None) -> bool:
+        await self._ensure_connected()
+        current = await self.client.jobposition.find_unique(where={"id": position_id})
+        if not current or (organization_id and current.organizationId != organization_id):
+            raise KeyError(position_id)
+        await self.client.jobposition.delete(where={"id": position_id})
+        return True
 
     async def get_employee(self, employee_id: str, organization_id: str | None = None) -> dict[str, Any] | None:
         await self._ensure_connected()

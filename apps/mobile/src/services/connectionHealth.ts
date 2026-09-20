@@ -56,7 +56,7 @@ export async function checkConnectionHealth(
 
   try {
     const apiResponse = await fetchWithTimeout(
-      resolveEndpointUrl(apiBaseUrl, '/api/health'),
+      resolveEndpointUrl(apiBaseUrl, '/health'),
       {
         method: 'GET',
         headers: {

@@ -18,7 +18,8 @@ say() { printf '[CovaVision test] %s\n' "$*"; }
 }
 
 say "Backend pytest"
-PATH="$PROJECT_ROOT/.venv/bin:$PATH" "$PROJECT_ROOT/.venv/bin/pytest" -q
+PATH="$PROJECT_ROOT/.venv/bin:$PATH" "$PROJECT_ROOT/.venv/bin/pytest" -q \
+  --cov=backend/app --cov-report=term-missing --cov-report=html:coverage/backend
 
 say "Desktop React build"
 npm --prefix "$PROJECT_ROOT/apps/desktop" run build:react

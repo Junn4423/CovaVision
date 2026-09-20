@@ -42,3 +42,33 @@ def test_tts_get_head_cache_and_failure_paths(monkeypatch, client: TestClient) -
 
     monkeypatch.setattr("app.api.routes.tts._get_google_tts_bytes", lambda _text, _lang: None)
     assert client.get("/api/v1/tts?text=unavailable").status_code == 503
+
+
+def test_tts_provider_cache_and_network_failures(monkeypatch) -> None:
+    import app.api.routes.tts as tts
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b"a" * 101
+
+    tts._AUDIO_CACHE.clear()
+    calls = []
+    monkeypatch.setattr(tts.urllib.request, "urlopen", lambda *_args, **_kwargs: calls.append(1) or Response())
+    assert tts._get_google_tts_bytes("hello", "vi") == b"a" * 101
+    assert tts._get_google_tts_bytes("hello", "vi") == b"a" * 101
+    assert len(calls) == 1
+
+    class ShortResponse(Response):
+        def read(self):
+            return b"tiny"
+
+    monkeypatch.setattr(tts.urllib.request, "urlopen", lambda *_args, **_kwargs: ShortResponse())
+    assert tts._get_google_tts_bytes("short", "vi") is None
+    monkeypatch.setattr(tts.urllib.request, "urlopen", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError()))
+    assert tts._get_google_tts_bytes("offline", "vi") is None
