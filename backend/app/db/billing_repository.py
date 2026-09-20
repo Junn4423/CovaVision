@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from app.billing.payment_providers import PAYMENT_METHOD_CATALOG
 from app.billing.plans import get_plan
+from app.core.config import settings
 from app.core.security import hash_password
 
 
@@ -50,13 +51,14 @@ class PrismaBillingMixin:
                     "update": {
                         "name": item["name"],
                         "provider": item["provider"],
+                        "environment": settings.payment_environment,
                         "displayOrder": item["display_order"],
                     },
                     "create": {
                         "code": item["code"],
                         "name": item["name"],
                         "provider": item["provider"],
-                        "environment": "sandbox",
+                        "environment": settings.payment_environment,
                         "isActive": True,
                         "displayOrder": item["display_order"],
                     },

@@ -77,8 +77,8 @@ def _build_payment_provider(code: str):
 
 
 def _qr_url(order_code: str, amount_vnd: int) -> str | None:
-    account = settings.sepay_bank_account.strip()
-    bank = settings.sepay_bank_code.strip()
+    account = (settings.vietqr_bank_account or settings.sepay_bank_account).strip()
+    bank = (settings.vietqr_bank_code or settings.sepay_bank_code).strip()
     if not account or not bank:
         return None
     return (
@@ -188,7 +188,7 @@ async def checkout(
             raise HTTPException(status_code=409, detail="Phương thức thanh toán đang tắt") from exc
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
-        provider = _build_payment_provider(payment_method)
+        provider = _build_payment_provider(str(payment.get("provider") or payment_method))
         intent = await provider.create_payment(
             order_code=order_code,
             amount_vnd=int(payment["amount_vnd"]),
@@ -268,7 +268,7 @@ async def sepay_webhook(
         amount = int(float(payload.transferAmount))
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail="Số tiền webhook không hợp lệ") from exc
-    configured_account = settings.sepay_bank_account.strip()
+    configured_account = (settings.vietqr_bank_account or settings.sepay_bank_account).strip()
     if configured_account and payload.accountNumber and payload.accountNumber.strip() != configured_account:
         raise HTTPException(status_code=422, detail="Sai tài khoản nhận tiền")
     try:
