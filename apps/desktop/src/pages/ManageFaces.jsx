@@ -53,7 +53,7 @@ function getManageStatusBadge(employee) {
   }
 }
 
-function ImagePreviewModal({ viewer, onClose, onUpdateFace }) {
+function ImagePreviewModal({ viewer, onClose, onUpdateFace, onCaptureFace }) {
   if (!viewer.open) return null
 
   const resolvedImage =
@@ -149,17 +149,28 @@ function ImagePreviewModal({ viewer, onClose, onUpdateFace }) {
             <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2 flex-wrap">
               <button
                 type="button"
+                onClick={() => onCaptureFace?.(viewer.employee)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors cursor-pointer"
+                title="Mở camera để chụp khuôn mặt mới"
+              >
+                <Camera size={13} />
+                <span>Chụp ảnh mới</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => onUpdateFace(viewer.employee?.id)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors cursor-pointer"
+                title="Tải ảnh từ máy tính"
               >
                 <Upload size={13} />
-                <span>Đổi ảnh mới</span>
+                <span>Tải ảnh từ máy</span>
               </button>
 
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors cursor-pointer"
               >
                 Đóng
               </button>
@@ -453,6 +464,12 @@ export default function ManageFaces() {
     setRegisterModalOpen(true)
   }
 
+  function handleCaptureFace(employee) {
+    closeViewer()
+    setSelectedEmployeeForReg(employee)
+    setRegisterModalOpen(true)
+  }
+
   const filterButtons = [
     { key: 'all', label: 'Tất cả', count: employees.length },
     { key: 'with_face', label: 'Đã có khuôn mặt', count: withFaceCount },
@@ -484,6 +501,7 @@ export default function ManageFaces() {
         viewer={viewer}
         onClose={closeViewer}
         onUpdateFace={handleUpdateFace}
+        onCaptureFace={handleCaptureFace}
       />
 
       {/* Page Header */}

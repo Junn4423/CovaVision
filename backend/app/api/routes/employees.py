@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import base64
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.api.deps import get_current_user, get_recognition_service, get_repository
 from app.api.image_input import read_image_request
@@ -147,6 +148,30 @@ async def employee_image(
         raise HTTPException(status_code=404, detail="Employee not found")
     image = await repository.get_employee_image(employee_id, organization_id)
     return {"success": True, "employee_id": employee_id, **(image or {})}
+
+
+@router.get("/{employee_id}/avatar")
+async def get_employee_avatar(
+    employee_id: str,
+    repository: Repository = Depends(get_repository),
+) -> Response:
+    image = await repository.get_employee_image(employee_id)
+    if not image or not image.get("image_base64"):
+        raise HTTPException(status_code=404, detail="Employee avatar not found")
+    raw_b64 = str(image["image_base64"] or "")
+    if "," in raw_b64:
+        raw_b64 = raw_b64.split(",", 1)[1]
+    try:
+        image_bytes = base64.b64decode(raw_b64)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Invalid avatar data") from exc
+    return Response(
+        content=image_bytes,
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "public, max-age=3600",
+        },
+    )
 
 
 @router.delete("/{employee_id}/face")

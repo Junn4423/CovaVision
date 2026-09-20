@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -12,6 +11,7 @@ from app.db.repository import Repository
 from app.recognition.service import RecognitionService, RecognitionUnavailable
 
 router = APIRouter(prefix="/api/v1/attendance", tags=["attendance"])
+VIETNAM_TZ = timezone(timedelta(hours=7))
 
 
 def _organization_id(user: dict[str, Any]) -> str:
@@ -32,7 +32,7 @@ def _today_start_utc() -> str:
 
 
 def _is_today(captured_at: Any) -> bool:
-    """Check if a captured_at timestamp is from today (UTC)."""
+    """Check if a captured_at timestamp is from today (Vietnam local time UTC+7)."""
     if not captured_at:
         return False
     try:
@@ -42,9 +42,10 @@ def _is_today(captured_at: Any) -> bool:
             ts = captured_at if captured_at.tzinfo else captured_at.replace(tzinfo=timezone.utc)
         else:
             return False
-        today = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date()
-        return ts.date() == today
-    except (ValueError, TypeError):
+        today_vn = datetime.now(VIETNAM_TZ).date()
+        ts_vn = ts.astimezone(VIETNAM_TZ)
+        return ts_vn.date() == today_vn
+    except Exception:
         return False
 
 

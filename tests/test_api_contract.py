@@ -455,3 +455,44 @@ def test_tts_audio_endpoint(monkeypatch) -> None:
     assert resp.content == b"fake-mp3-bytes"
 
 
+def test_employee_avatar_endpoint() -> None:
+    local_repository = InMemoryRepository()
+    local_repository.seed_user("avatar.test", "test-password", role="ADMIN")
+    local_app = create_app(repository=local_repository)
+    local_client = TestClient(local_app)
+
+    # 404 for non-existent employee
+    resp = local_client.get("/api/v1/employees/NOT-EXIST/avatar")
+    assert resp.status_code == 404
+
+    # Seed employee with face
+    import asyncio
+    asyncio.run(local_repository.save_employee({"employee_id": "AVATAR-01", "name": "Avatar User"}))
+    asyncio.run(local_repository.save_employee_face("AVATAR-01", [0.1] * 512, image_bytes=b"\xff\xd8\xff\xe0testjpeg"))
+
+    # Fetch avatar directly without auth token
+    resp2 = local_client.get("/api/v1/employees/AVATAR-01/avatar")
+    assert resp2.status_code == 200
+    assert resp2.headers["content-type"] == "image/jpeg"
+    assert resp2.content == b"\xff\xd8\xff\xe0testjpeg"
+
+
+def test_attendance_today_endpoint() -> None:
+    local_repository = InMemoryRepository()
+    local_repository.seed_user("att.today", "test-password", role="ADMIN")
+    local_app = create_app(repository=local_repository)
+    local_client = TestClient(local_app)
+    token = local_client.post(
+        "/api/v1/auth/login",
+        json={"username": "att.today", "password": "test-password"},
+    ).json()["access_token"]
+
+    resp = local_client.get(
+        "/api/v1/attendance/today",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+    assert "records" in resp.json()
+
+

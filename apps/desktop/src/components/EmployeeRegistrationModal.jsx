@@ -341,7 +341,9 @@ export default function EmployeeRegistrationModal({
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-[#0E4F9A] dark:text-[#33B1FF]">COVAVISION BIOMETRIC AI</span>
-            <h2 className="text-xl font-black text-slate-900 dark:text-slate-100">Đăng ký khuôn mặt nhân viên</h2>
+            <h2 className="text-xl font-black text-slate-900 dark:text-slate-100">
+              {initialEmployee ? 'Cập nhật khuôn mặt nhân viên' : 'Đăng ký khuôn mặt nhân viên'}
+            </h2>
           </div>
           <button
             type="button"
@@ -559,7 +561,7 @@ export default function EmployeeRegistrationModal({
               className="inline-flex items-center gap-2 rounded-xl bg-[#0E4F9A] hover:bg-[#0B3E7A] px-6 py-2.5 text-xs font-bold text-white shadow-md transition-all disabled:opacity-50 cursor-pointer"
             >
               {submitting ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={15} />}
-              <span>{submitting ? 'Đang trích xuất & lưu...' : 'Lưu khuôn mặt'}</span>
+              <span>{submitting ? 'Đang trích xuất & lưu...' : (initialEmployee ? 'Cập nhật khuôn mặt' : 'Lưu khuôn mặt')}</span>
             </button>
           </div>
         </form>

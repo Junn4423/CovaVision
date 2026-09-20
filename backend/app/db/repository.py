@@ -362,6 +362,8 @@ class InMemoryRepository:
         employee["face_count"] = 1
         if image_bytes:
             employee["image_base64"] = "data:image/jpeg;base64," + base64.b64encode(image_bytes).decode("ascii")
+            employee["image_url"] = f"/api/v1/employees/{employee_id}/avatar"
+            employee["local_image_url"] = f"/api/v1/employees/{employee_id}/avatar"
         employee["updated_at"] = _now().isoformat()
         return employee
 
@@ -371,6 +373,9 @@ class InMemoryRepository:
             raise KeyError(employee_id)
         employee.pop("embedding", None)
         employee.pop("face_encoding", None)
+        employee.pop("image_base64", None)
+        employee.pop("image_url", None)
+        employee.pop("local_image_url", None)
         employee["registered"] = False
         employee["has_face"] = False
         employee["face_count"] = 0
@@ -844,7 +849,7 @@ class PrismaRepository(PrismaBillingMixin):
             return {"image_base64": None, "image_url": ""}
         return {
             "image_base64": "data:image/jpeg;base64," + base64.b64encode(raw).decode("ascii"),
-            "image_url": "",
+            "image_url": f"/api/v1/employees/{employee.employeeCode}/avatar",
         }
 
     async def list_cameras(self, organization_id: str | None = None) -> list[dict[str, Any]]:
@@ -1171,6 +1176,14 @@ class PrismaRepository(PrismaBillingMixin):
         def date_value(value: Any) -> str | None:
             return value.isoformat() if value is not None and hasattr(value, "isoformat") else None
 
+        has_face = bool(faces) if registered is None else registered
+        active_face = next((f for f in faces if getattr(f, "isActive", True)), None) or (faces[0] if faces else None)
+        image_path = getattr(active_face, "imagePath", None) if active_face else getattr(employee, "avatarPath", None)
+        face_updated = getattr(active_face, "updatedAt", None) or getattr(employee, "updatedAt", None)
+        ts = int(face_updated.timestamp()) if (face_updated and hasattr(face_updated, "timestamp")) else ""
+        avatar_query = f"?t={ts}" if ts else ""
+        avatar_url = f"/api/v1/employees/{employee.employeeCode}/avatar{avatar_query}" if (has_face and image_path) else ""
+
         return {
             "id": employee.id,
             "employee_id": employee.employeeCode,
@@ -1181,15 +1194,17 @@ class PrismaRepository(PrismaBillingMixin):
             "department": department.name if department else None,
             "position_id": employee.positionId,
             "position": position.name if position else None,
-            "avatar_path": employee.avatarPath,
+            "avatar_path": employee.avatarPath or (str(image_path) if image_path else None),
+            "image_url": avatar_url,
+            "local_image_url": avatar_url,
             "date_of_birth": date_value(employee.dateOfBirth),
             "hire_date": date_value(employee.hireDate),
             "termination_date": date_value(employee.terminationDate),
             "status": status,
             "status_code": status.lower(),
             "metadata": employee.metadata,
-            "registered": bool(faces) if registered is None else registered,
-            "has_face": bool(faces) if registered is None else registered,
+            "registered": has_face,
+            "has_face": has_face,
             "face_count": len(faces) if registered is None else (1 if registered else 0),
         }
 
