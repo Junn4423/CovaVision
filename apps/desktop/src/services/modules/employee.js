@@ -1,5 +1,5 @@
 /** Employee and face-template management backed by CovaVision. */
-import { request } from '../request'
+import { request, requestBlob } from '../request'
 import { normalizeEmployeeImageUri, resolveEmployeeAvatar } from '../../utils/avatarUtils'
 
 function buildQuery(params = {}) {
@@ -47,6 +47,17 @@ export const employeeApi = {
   updateFaceBase64: data => faceRequest('/api/v1/employees/face', data, { timeout: 60000 }),
   deleteEmployee: userId => request(`/api/v1/employees/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
   clearFace: userId => request(`/api/v1/employees/${encodeURIComponent(userId)}/face`, { method: 'DELETE' }),
+  exportEmployeesUrl: () => '/api/v1/employees/export',
+  exportEmployeesExcel: () => requestBlob('/api/v1/employees/export'),
+  importEmployees: formDataOrJson => {
+    const isFormData = typeof FormData !== 'undefined' && formDataOrJson instanceof FormData
+    return request('/api/v1/employees/import', {
+      method: 'POST',
+      ...(isFormData ? {} : { headers: { 'Content-Type': 'application/json' } }),
+      body: isFormData ? formDataOrJson : JSON.stringify(formDataOrJson || {}),
+      timeout: 60000,
+    })
+  },
   getEmployeeAccounts: () => request('/api/v1/accounts'),
   upsertEmployeeAccount: payload => request('/api/v1/accounts', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}),

@@ -6,7 +6,9 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  Download,
   Eye,
+  FileSpreadsheet,
   Image as ImageIcon,
   LayoutGrid,
   List,
@@ -470,6 +472,53 @@ export default function ManageFaces() {
     setRegisterModalOpen(true)
   }
 
+  const [importing, setImporting] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const fileInputRef = useRef(null)
+
+  async function handleExportEmployees() {
+    setExporting(true)
+    try {
+      const result = await api.exportEmployeesExcel()
+      const url = URL.createObjectURL(result.blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = result.filename || `danh_sach_nhan_vien_${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      toast.success('Xuất danh sách nhân viên thành công!')
+    } catch (err) {
+      toast.error(err?.message || 'Không thể xuất file danh sách nhân viên.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  async function handleImportFile(event) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    event.target.value = ''
+
+    setImporting(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await api.importEmployees(formData)
+      if (res.success) {
+        toast.success(res.message || `Đã nhập thành công ${res.imported} nhân viên.`)
+        await loadEmployees()
+      } else {
+        toast.error(res.message || 'Nhập file thất bại.')
+      }
+    } catch (err) {
+      toast.error(err?.message || 'Lỗi khi nhập danh sách nhân viên từ file.')
+    } finally {
+      setImporting(false)
+    }
+  }
+
   const filterButtons = [
     { key: 'all', label: 'Tất cả', count: employees.length },
     { key: 'with_face', label: 'Đã có khuôn mặt', count: withFaceCount },
@@ -522,6 +571,36 @@ export default function ManageFaces() {
 
         {/* Action Buttons */}
         <div className="flex items-center gap-2.5 flex-wrap">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleImportFile}
+            accept=".csv,.xlsx,.xls,.txt"
+            className="hidden"
+          />
+
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            className="inline-flex items-center gap-2 px-3.5 py-2.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 rounded-xl text-xs sm:text-sm font-semibold border border-slate-200 dark:border-slate-700 shadow-2xs transition-all disabled:opacity-50 cursor-pointer"
+            title="Nhập danh sách nhân viên từ file Excel / CSV"
+          >
+            <Upload size={15} className={importing ? 'animate-spin text-blue-600' : 'text-slate-500 dark:text-slate-400'} />
+            <span>{importing ? 'Đang nhập...' : 'Nhập Excel'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportEmployees}
+            disabled={exporting || employees.length === 0}
+            className="inline-flex items-center gap-2 px-3.5 py-2.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 rounded-xl text-xs sm:text-sm font-semibold border border-slate-200 dark:border-slate-700 shadow-2xs transition-all disabled:opacity-50 cursor-pointer"
+            title="Xuất danh sách nhân viên ra file Excel / CSV chuẩn UTF-8 BOM"
+          >
+            <Download size={15} className={exporting ? 'animate-spin text-blue-600' : 'text-slate-500 dark:text-slate-400'} />
+            <span>{exporting ? 'Đang xuất...' : 'Xuất Excel'}</span>
+          </button>
+
           <button
             type="button"
             onClick={() => {
