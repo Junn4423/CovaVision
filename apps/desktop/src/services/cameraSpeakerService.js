@@ -78,11 +78,38 @@ export function testCameraSpeaker(options = {}) {
   return speakToCamera(options.text || 'Xin chào bạn, kiểm tra loa camera thành công', options)
 }
 
-export function speakAttendanceViaCamera(userName, _attendanceType = 'auto', isLate = false, options = {}) {
+export function speakAttendanceViaCamera(userName, attendanceType = 'auto', shiftInfo = false, options = {}) {
   const name = String(userName || '').trim()
   if (!name) return Promise.resolve({ success: false, message: 'Thiếu tên nhân viên.' })
-  const sentence = isLate
-    ? `Xin chào ${name}, lượt quét mặt đã được ghi nhận!`
-    : `Xin chào ${name}, quét mặt thành công!`
+
+  let isLate = false
+  let isEarly = false
+  let type = String(attendanceType || 'auto').toUpperCase()
+
+  if (typeof shiftInfo === 'boolean') {
+    isLate = shiftInfo
+  } else if (shiftInfo && typeof shiftInfo === 'object') {
+    isLate = Boolean(shiftInfo.is_late)
+    isEarly = Boolean(shiftInfo.is_early_departure)
+    if (shiftInfo.attendance_type) {
+      type = String(shiftInfo.attendance_type).toUpperCase()
+    }
+  }
+
+  let sentence = ''
+  if (type === 'CHECK_IN' || type === 'IN') {
+    sentence = isLate
+      ? `Xin chào ${name}, bạn đã vào ca muộn!`
+      : `Xin chào ${name}, chúc bạn một ngày làm việc tốt lành!`
+  } else if (type === 'CHECK_OUT' || type === 'OUT') {
+    sentence = isEarly
+      ? `Tạm biệt ${name}, bạn đã về sớm!`
+      : `Tạm biệt ${name}, hoàn thành ca làm việc!`
+  } else {
+    sentence = isLate
+      ? `Xin chào ${name}, ghi nhận điểm danh!`
+      : `Xin chào ${name}, quét mặt thành công!`
+  }
+
   return speakToCamera(sentence, options)
 }

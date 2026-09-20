@@ -1093,7 +1093,7 @@ export default function Attendance() {
           const targetCameraId = currentSpeakerConfig.cameraId || speakerInfo.cameraId || targetCam?.id
 
           console.log(`[Attendance] 📢 Phát loa camera ngoài cho "${employeeName}" qua API`)
-          speakAttendanceViaCamera(employeeName, 'auto', res?.is_late, {
+          speakAttendanceViaCamera(employeeName, res?.attendance_type || 'auto', res, {
             cameraId: targetCameraId,
             volume: currentSpeakerConfig.volume,
             profileId: currentSpeakerConfig.profileId,
@@ -1104,7 +1104,7 @@ export default function Attendance() {
           })
         } else if (localStorage.getItem('covavision.tts_enabled') !== 'false') {
           console.log(`[Attendance] 💻 Phát loa máy tính (PC) cho "${employeeName}"`)
-          speakAttendanceOutcome(employeeName, 'auto', res?.is_late)
+          speakAttendanceOutcome(employeeName, res?.attendance_type || 'auto', res)
         }
 
         await loadTodayRecords()

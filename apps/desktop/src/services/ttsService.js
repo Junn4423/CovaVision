@@ -134,16 +134,56 @@ export async function speakText(text, options = {}) {
   playFallbackChime()
 }
 
-export function speakAttendanceOutcome(userName, attendanceType = 'IN', isLate = false) {
+export function speakAttendanceOutcome(userName, attendanceType = 'auto', shiftInfo = false) {
   const name = String(userName || '').trim()
   if (!name) return
 
-  let sentence
-  if (isLate) {
-    sentence = `Xin chào ${name}. Bạn đã được ghi nhận vào ca làm việc!`
+  let isLate = false
+  let isEarly = false
+  let lateMinutes = 0
+  let earlyMinutes = 0
+  let type = String(attendanceType || 'auto').toUpperCase()
+
+  if (typeof shiftInfo === 'boolean') {
+    isLate = shiftInfo
+  } else if (shiftInfo && typeof shiftInfo === 'object') {
+    isLate = Boolean(shiftInfo.is_late)
+    isEarly = Boolean(shiftInfo.is_early_departure)
+    lateMinutes = Number(shiftInfo.late_minutes) || 0
+    earlyMinutes = Number(shiftInfo.early_minutes) || 0
+    if (shiftInfo.attendance_type) {
+      type = String(shiftInfo.attendance_type).toUpperCase()
+    }
+  }
+
+  let sentence = ''
+  if (type === 'CHECK_IN' || type === 'IN') {
+    if (isLate) {
+      sentence = lateMinutes > 0
+        ? `Xin chào ${name}. Bạn đã vào ca muộn ${lateMinutes} phút.`
+        : `Xin chào ${name}. Bạn đã vào ca muộn.`
+    } else {
+      sentence = `Xin chào ${name}. Chúc bạn một ngày làm việc hiệu quả!`
+    }
+  } else if (type === 'CHECK_OUT' || type === 'OUT') {
+    if (isEarly) {
+      sentence = earlyMinutes > 0
+        ? `Tạm biệt ${name}. Bạn đã về sớm ${earlyMinutes} phút.`
+        : `Tạm biệt ${name}. Ghi nhận về sớm!`
+    } else {
+      sentence = `Tạm biệt ${name}. Cảm ơn bạn đã hoàn thành ngày làm việc!`
+    }
   } else {
-    sentence = `Xin chào ${name}. Quét mặt thành công!`
+    // Default / Auto
+    if (isLate) {
+      sentence = `Xin chào ${name}. Bạn đã được ghi nhận vào ca làm việc.`
+    } else if (isEarly) {
+      sentence = `Tạm biệt ${name}. Bạn đã được ghi nhận kết thúc ca.`
+    } else {
+      sentence = `Xin chào ${name}. Quét mặt thành công!`
+    }
   }
 
   void speakText(sentence)
 }
+
