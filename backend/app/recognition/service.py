@@ -279,6 +279,11 @@ class RecognitionService:
                 "client_event_id": normalized_client_event_id or None,
                 "organization_id": organization_id,
             })
+            await self._store_attendance_snapshot(
+                record,
+                image_bytes,
+                organization_id=organization_id,
+            )
             await self._write_recognition_audit(
                 result,
                 record,
@@ -301,6 +306,30 @@ class RecognitionService:
                 "data:image/jpeg;base64," + base64.b64encode(image_bytes).decode("ascii")
             )
         return response
+
+    async def _store_attendance_snapshot(
+        self,
+        record: dict[str, Any],
+        image_bytes: bytes,
+        *,
+        organization_id: str | None,
+    ) -> None:
+        if not settings.attendance_snapshot_enabled or not organization_id:
+            return
+        try:
+            await self.repository.save_attendance_snapshot(
+                str(record.get("id") or ""),
+                image_bytes,
+                organization_id,
+            )
+            retention_days = int(settings.attendance_snapshot_retention_days)
+            if retention_days > 0:
+                await self.repository.purge_attendance_snapshots(
+                    datetime.now(timezone.utc) - timedelta(days=retention_days),
+                    organization_id,
+                )
+        except Exception as exc:  # pragma: no cover - depends on storage/database availability
+            logger.warning("Could not write attendance snapshot: %s", exc)
 
     async def _write_recognition_audit(
         self,

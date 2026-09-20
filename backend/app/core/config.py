@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     # Prevent a continuous camera stream from creating duplicate attendance
     # records for the same employee during this interval.
     attendance_cooldown_seconds: int = 60
+    attendance_snapshot_enabled: bool = False
+    attendance_snapshot_retention_days: int = 30
     # SEC-07: Minimum password length enforced on account creation/reset.
     password_min_length: int = 6
     # SEC-02: Maximum login attempts per IP within the sliding window.

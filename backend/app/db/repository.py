@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import os
 import struct
 import re
@@ -19,6 +20,7 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 from app.billing.plans import get_plan
+from app.core.runtime import resolve_data_dir
 from app.core.security import (
     decrypt_camera_secret,
     decrypt_face_embedding,
@@ -106,6 +108,19 @@ class Repository(Protocol):
 
     async def create_attendance(self, payload: dict[str, Any], organization_id: str | None = None) -> dict[str, Any]: ...
 
+    async def save_attendance_snapshot(
+        self,
+        attendance_id: str,
+        image_bytes: bytes,
+        organization_id: str | None = None,
+    ) -> dict[str, Any] | None: ...
+
+    async def purge_attendance_snapshots(
+        self,
+        before: datetime,
+        organization_id: str | None = None,
+    ) -> int: ...
+
     async def find_attendance_by_client_event(
         self,
         client_event_id: str,
@@ -180,6 +195,7 @@ class InMemoryRepository:
         self.employees: dict[str, dict[str, Any]] = {}
         self.cameras: dict[str, dict[str, Any]] = {}
         self.attendance: list[dict[str, Any]] = []
+        self.attendance_snapshots: list[dict[str, Any]] = []
         self.organization_id = organization_id
         self.settings_by_organization: dict[str, dict[str, Any]] = {organization_id: {}}
         # Keep the legacy attribute available for tests and demo integrations.
@@ -634,6 +650,47 @@ class InMemoryRepository:
         }
         self.attendance.append(record)
         return record
+
+    async def save_attendance_snapshot(
+        self,
+        attendance_id: str,
+        image_bytes: bytes,
+        organization_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        record = next((item for item in self.attendance if str(item.get("id")) == str(attendance_id)), None)
+        if record is None:
+            return None
+        if organization_id and str(record.get("organization_id") or "") != str(organization_id):
+            return None
+        snapshot = {
+            "id": str(uuid4()),
+            "attendance_id": str(attendance_id),
+            "organization_id": str(record.get("organization_id") or self.organization_id),
+            "storage_path": f"memory://attendance-snapshots/{uuid4()}.jpg",
+            "sha256": hashlib.sha256(bytes(image_bytes)).hexdigest(),
+            "created_at": _now().isoformat(),
+        }
+        self.attendance_snapshots.append(snapshot)
+        return snapshot
+
+    async def purge_attendance_snapshots(
+        self,
+        before: datetime,
+        organization_id: str | None = None,
+    ) -> int:
+        kept = []
+        removed = 0
+        for snapshot in self.attendance_snapshots:
+            if organization_id and str(snapshot.get("organization_id") or "") != str(organization_id):
+                kept.append(snapshot)
+                continue
+            created_at = _parse_filter_datetime(snapshot.get("created_at"))
+            if created_at is not None and created_at < before:
+                removed += 1
+                continue
+            kept.append(snapshot)
+        self.attendance_snapshots = kept
+        return removed
 
     async def find_attendance_by_client_event(
         self,
@@ -1314,6 +1371,60 @@ class PrismaRepository(PrismaBillingMixin):
         )
         return self._attendance_to_dict(record)
 
+    async def save_attendance_snapshot(
+        self,
+        attendance_id: str,
+        image_bytes: bytes,
+        organization_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        await self._ensure_connected()
+        attendance = await self.client.attendancerecord.find_unique(where={"id": str(attendance_id)})
+        if attendance is None:
+            return None
+        if organization_id and attendance.organizationId != str(organization_id):
+            return None
+        snapshot_id = str(uuid4())
+        snapshot_dir = resolve_data_dir() / "attendance_snapshots"
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        storage_path = snapshot_dir / f"{snapshot_id}.jpg"
+        storage_path.write_bytes(bytes(image_bytes))
+        snapshot = await self.client.attendancesnapshot.create(
+            data={
+                "id": snapshot_id,
+                "attendanceId": str(attendance_id),
+                "storagePath": str(storage_path),
+                "sha256": hashlib.sha256(bytes(image_bytes)).hexdigest(),
+            },
+        )
+        return self._attendance_snapshot_to_dict(snapshot)
+
+    async def purge_attendance_snapshots(
+        self,
+        before: datetime,
+        organization_id: str | None = None,
+    ) -> int:
+        await self._ensure_connected()
+        where: dict[str, Any] = {"createdAt": {"lt": before}}
+        snapshots = await self.client.attendancesnapshot.find_many(
+            where=where,
+            include={"attendance": True},
+        )
+        removed = 0
+        for snapshot in snapshots:
+            attendance = getattr(snapshot, "attendance", None)
+            if organization_id and attendance is not None and attendance.organizationId != str(organization_id):
+                continue
+            try:
+                path = Path(str(snapshot.storagePath))
+                if not path.is_absolute():
+                    path = Path.cwd() / path
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            await self.client.attendancesnapshot.delete(where={"id": snapshot.id})
+            removed += 1
+        return removed
+
     async def find_attendance_by_client_event(
         self,
         client_event_id: str,
@@ -1690,6 +1801,18 @@ class PrismaRepository(PrismaBillingMixin):
             "captured_at": record.capturedAt.isoformat(),
             "confidence": float(record.confidence) if record.confidence is not None else None,
             "client_event_id": getattr(record, "clientEventId", None),
+        }
+
+    @staticmethod
+    def _attendance_snapshot_to_dict(record: Any) -> dict[str, Any]:
+        return {
+            "id": record.id,
+            "attendance_id": record.attendanceId,
+            "storage_path": record.storagePath,
+            "sha256": record.sha256,
+            "width": record.width,
+            "height": record.height,
+            "created_at": record.createdAt.isoformat(),
         }
 
     @staticmethod
