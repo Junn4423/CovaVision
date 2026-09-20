@@ -38,18 +38,50 @@ def _build_filters(
     return filters
 
 
+def _page_values(limit: int | None, offset: int) -> tuple[int, int]:
+    if offset < 0:
+        raise HTTPException(status_code=422, detail="offset phải lớn hơn hoặc bằng 0")
+    if limit is not None and limit < 1:
+        raise HTTPException(status_code=422, detail="limit phải lớn hơn 0")
+    return min(limit or 200, 100), offset
+
+
+async def _attendance_page(
+    repository: Repository,
+    filters: dict[str, Any],
+    organization_id: str,
+    limit: int | None,
+    offset: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    page_limit, page_offset = _page_values(limit, offset)
+    records = await repository.list_attendance(
+        {**filters, "limit": page_limit + 1, "offset": page_offset},
+        organization_id,
+    )
+    has_more = len(records) > page_limit
+    return records[:page_limit], {"limit": page_limit, "offset": page_offset, "has_more": has_more}
+
+
 @router.get("/attendance")
 async def attendance_report(
     start_date: str | None = None,
     end_date: str | None = None,
     employee_id: str | None = None,
     status: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
     current_user: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     filters = _build_filters(start_date, end_date, employee_id, status)
-    records = await repository.list_attendance(filters, _organization_id(current_user))
-    return {"success": True, "records": records, "attendance": records}
+    records, pagination = await _attendance_page(
+        repository,
+        filters,
+        _organization_id(current_user),
+        limit,
+        offset,
+    )
+    return {"success": True, "records": records, "attendance": records, "pagination": pagination}
 
 
 @router.get("/attendance/online")
@@ -58,12 +90,20 @@ async def online_attendance_report(
     end_date: str | None = None,
     employee_id: str | None = None,
     status: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
     current_user: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
     filters = _build_filters(start_date, end_date, employee_id, status)
-    records = await repository.list_attendance(filters, _organization_id(current_user))
-    return {"success": True, "records": records}
+    records, pagination = await _attendance_page(
+        repository,
+        filters,
+        _organization_id(current_user),
+        limit,
+        offset,
+    )
+    return {"success": True, "records": records, "pagination": pagination}
 
 
 @router.get("/attendance/export")

@@ -693,7 +693,15 @@ class InMemoryRepository:
         if status and status != "ALL":
             status_norm = str(status).strip().upper()
             items = [item for item in items if str(item.get("status", "")).upper() == status_norm]
-        return items
+        try:
+            offset = max(0, int(filters.get("offset", 0) or 0))
+        except (TypeError, ValueError):
+            offset = 0
+        try:
+            limit = min(201, max(1, int(filters.get("limit", 200) or 200)))
+        except (TypeError, ValueError):
+            limit = 200
+        return items[offset: offset + limit]
 
     async def get_settings(
         self,
@@ -1385,7 +1393,8 @@ class PrismaRepository(PrismaBillingMixin):
         records = await self.client.attendancerecord.find_many(
             where=where,
             order={"capturedAt": "desc"},
-            take=200,
+            skip=max(0, int(filters.get("offset", 0) or 0)),
+            take=min(201, max(1, int(filters.get("limit", 200) or 200))),
             include={"employee": True, "camera": True},
         )
         return [self._attendance_to_dict(record) for record in records]

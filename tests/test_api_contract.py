@@ -375,6 +375,34 @@ def test_admin_contracts_cover_accounts_settings_and_report_export() -> None:
     assert "employee_id" in export.text
 
 
+def test_attendance_report_supports_bounded_pagination() -> None:
+    import asyncio
+
+    local_repository = InMemoryRepository()
+    local_repository.seed_user("page.test", "test-password", role="ADMIN")
+    for index in range(3):
+        asyncio.run(local_repository.create_attendance({
+            "id": f"PAGE-{index}",
+            "employee_id": f"EMP-{index}",
+            "captured_at": f"2026-09-20T00:0{index}:00+00:00",
+            "status": "accepted",
+        }))
+    local_client = TestClient(create_app(repository=local_repository))
+    token = local_client.post(
+        "/api/v1/auth/login",
+        json={"username": "page.test", "password": "test-password"},
+    ).json()["access_token"]
+
+    response = local_client.get(
+        "/api/v1/reports/attendance?limit=1&offset=1",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["records"]] == ["PAGE-1"]
+    assert response.json()["pagination"] == {"limit": 1, "offset": 1, "has_more": True}
+
+
 def test_register_face_existing_employee() -> None:
     class FakeRecognizer:
         @staticmethod
