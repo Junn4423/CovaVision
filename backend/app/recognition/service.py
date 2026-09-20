@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import asyncio
+import logging
 import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
@@ -13,6 +14,8 @@ from app.core.config import settings
 from app.db.repository import Repository
 from app.recognition.face_matching import FaceCandidate, find_best_match
 from app.recognition.face_recognition_module import FaceRecognition
+
+logger = logging.getLogger(__name__)
 
 
 class RecognitionUnavailable(RuntimeError):
@@ -276,6 +279,13 @@ class RecognitionService:
                 "client_event_id": normalized_client_event_id or None,
                 "organization_id": organization_id,
             })
+            await self._write_recognition_audit(
+                result,
+                record,
+                camera_id=camera_id,
+                client_event_id=normalized_client_event_id or None,
+                organization_id=organization_id,
+            )
         response = {
             **result,
             "success": True,
@@ -291,6 +301,36 @@ class RecognitionService:
                 "data:image/jpeg;base64," + base64.b64encode(image_bytes).decode("ascii")
             )
         return response
+
+    async def _write_recognition_audit(
+        self,
+        result: dict[str, Any],
+        record: dict[str, Any],
+        *,
+        camera_id: str | None,
+        client_event_id: str | None,
+        organization_id: str | None,
+    ) -> None:
+        if not organization_id:
+            return
+        details = {
+            "employee_id": record.get("employee_id"),
+            "camera_id": camera_id,
+            "confidence": float(result.get("similarity") or 0.0),
+            "anti_spoof_enabled": bool(result.get("anti_spoof_enabled", False)),
+            "spoof_detected": bool(result.get("spoof_detected", False)),
+            "client_event_id": client_event_id,
+        }
+        try:
+            await self.repository.create_audit_log({
+                "organization_id": organization_id,
+                "action": "attendance.recognized",
+                "entity_type": "attendance",
+                "entity_id": record.get("id"),
+                "details": details,
+            })
+        except Exception as exc:  # pragma: no cover - depends on database availability
+            logger.warning("Could not write attendance audit event: %s", exc)
 
     async def _anti_spoof_entitled(self, organization_id: str | None) -> bool:
         if not organization_id:
