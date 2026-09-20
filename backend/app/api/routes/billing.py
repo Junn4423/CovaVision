@@ -1,4 +1,4 @@
-"""Subscription plans and SePay QR/webhook integration."""
+"""Subscription plans and payment provider integrations."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user, get_repository
+from app.billing.payment_providers import PaymentProviderError, build_payment_provider
 from app.billing.plans import get_plan, list_public_plans
 from app.core.config import settings
 from app.db.repository import Repository
@@ -22,6 +23,7 @@ router = APIRouter(prefix="/api/v1/billing", tags=["billing"])
 
 class CheckoutRequest(BaseModel):
     plan_code: str = Field(min_length=1, max_length=40)
+    payment_method: str = Field(default="vietqr", min_length=1, max_length=40)
 
 
 class SePayWebhook(BaseModel):
@@ -39,6 +41,10 @@ def _organization_id(user: dict[str, Any]) -> str:
     if not organization_id:
         raise HTTPException(status_code=401, detail="Phiên đăng nhập thiếu tổ chức")
     return organization_id
+
+
+def _build_payment_provider(code: str):
+    return build_payment_provider(code)
 
 
 def _qr_url(order_code: str, amount_vnd: int) -> str | None:
@@ -77,6 +83,13 @@ async def plans() -> dict[str, Any]:
     return {"success": True, "plans": list_public_plans()}
 
 
+@router.get("/payment-methods")
+async def payment_methods(
+    repository: Repository = Depends(get_repository),
+) -> dict[str, Any]:
+    return {"success": True, "payment_methods": await repository.list_payment_methods(active_only=True)}
+
+
 @router.get("/me")
 async def billing_me(
     current_user: dict[str, Any] = Depends(get_current_user),
@@ -102,12 +115,38 @@ async def checkout(
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(minutes=max(5, settings.payment_order_ttl_minutes))
     order_code = f"{settings.sepay_order_prefix.strip().upper() or 'CV'}{uuid4().hex[:16].upper()}"
+    payment_method = str(payload.payment_method or "vietqr").strip().lower()
     try:
-        payment = await repository.create_payment(_organization_id(current_user), plan.code, order_code, expires_at)
+        payment = await repository.create_payment(
+            _organization_id(current_user),
+            plan.code,
+            order_code,
+            expires_at,
+            payment_method,
+        )
     except ValueError as exc:
+        if str(exc) == "payment_method_inactive":
+            raise HTTPException(status_code=409, detail="Phương thức thanh toán đang tắt") from exc
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    payment["qr_code_url"] = _qr_url(order_code, int(payment["amount_vnd"]))
-    payment["instructions"] = "Quét QR và nhập đúng nội dung chuyển khoản; hệ thống sẽ tự kích hoạt sau khi SePay gửi webhook."
+    try:
+        provider = _build_payment_provider(payment_method)
+        intent = await provider.create_payment(
+            order_code=order_code,
+            amount_vnd=int(payment["amount_vnd"]),
+            organization_id=_organization_id(current_user),
+        )
+        payment = await repository.update_payment_provider(
+            order_code,
+            payment_url=intent.payment_url,
+            qr_code_url=intent.qr_code_url,
+            metadata=intent.metadata,
+        )
+    except PaymentProviderError as exc:
+        error_status = 503 if exc.code in {"payment_provider_not_configured", "payment_provider_unavailable"} else 502
+        raise HTTPException(status_code=error_status, detail=str(exc)) from exc
+    if payment_method == "vietqr" and not payment.get("qr_code_url"):
+        payment["qr_code_url"] = _qr_url(order_code, int(payment["amount_vnd"]))
+    payment["instructions"] = "Quét QR hoặc hoàn tất thanh toán trên cổng đã chọn; hệ thống sẽ tự kích hoạt gói sau khi nhận callback."
     return {"success": True, "payment": _payment_public(payment)}
 
 

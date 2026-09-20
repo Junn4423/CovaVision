@@ -79,6 +79,23 @@ model Organization {
   @@map("organizations")
 }
 
+model PaymentMethod {
+  id           String               @id @default(uuid()) @db.Char(36)
+  code         String               @unique @db.VarChar(40)
+  name         String               @db.VarChar(100)
+  provider     String               @db.VarChar(40)
+  environment  String               @default("sandbox") @db.VarChar(20)
+  isActive     Boolean              @default(false)
+  displayOrder Int                  @default(0)
+  metadata     Json?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  transactions PaymentTransaction[]
+
+  @@index([isActive, displayOrder])
+  @@map("payment_methods")
+}
+
 model Department {
   id             String        @id @default(uuid()) @db.Char(36)
   organizationId String        @db.Char(36)
@@ -232,6 +249,7 @@ model PaymentTransaction {
   amountVnd             Int
   status                PaymentStatus @default(PENDING)
   provider              String        @default("sepay") @db.VarChar(40)
+  paymentMethodId       String?       @db.Char(36)
   providerTransactionId String?       @unique @db.VarChar(255)
   transferContent       String?       @db.VarChar(500)
   accountNumber         String?       @db.VarChar(100)
@@ -243,9 +261,11 @@ model PaymentTransaction {
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
   organization          Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  paymentMethod         PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, status, createdAt])
   @@index([planCode, status])
+  @@index([paymentMethodId])
   @@map("payment_transactions")
 }
 

@@ -19,7 +19,9 @@ from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
 
+from app.billing.payment_providers import PAYMENT_METHOD_CATALOG
 from app.billing.plans import get_plan
+from app.core.config import settings
 from app.core.runtime import resolve_data_dir
 from app.core.security import (
     decrypt_camera_secret,
@@ -61,7 +63,24 @@ class Repository(Protocol):
 
     async def get_billing_summary(self, organization_id: str) -> dict[str, Any]: ...
 
-    async def create_payment(self, organization_id: str, plan_code: str, order_code: str, expires_at: datetime) -> dict[str, Any]: ...
+    async def list_payment_methods(self, active_only: bool = True) -> list[dict[str, Any]]: ...
+
+    async def create_payment(
+        self,
+        organization_id: str,
+        plan_code: str,
+        order_code: str,
+        expires_at: datetime,
+        payment_method: str = "vietqr",
+    ) -> dict[str, Any]: ...
+
+    async def update_payment_provider(
+        self,
+        order_code: str,
+        payment_url: str | None = None,
+        qr_code_url: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]: ...
 
     async def get_payment(self, organization_id: str, order_code: str) -> dict[str, Any] | None: ...
 
@@ -207,6 +226,14 @@ class InMemoryRepository:
         }
         self.subscriptions: list[dict[str, Any]] = []
         self.payments: dict[str, dict[str, Any]] = {}
+        self.payment_methods: dict[str, dict[str, Any]] = {
+            item["code"]: {
+                **item,
+                "active": 1,
+                "environment": settings.payment_environment,
+            }
+            for item in PAYMENT_METHOD_CATALOG
+        }
         self.access_sessions: dict[str, dict[str, Any]] = {}
         self.audit_logs: list[dict[str, Any]] = []
 
@@ -374,10 +401,26 @@ class InMemoryRepository:
         face_count = sum(1 for item in self.employees.values() if item.get("has_face") or item.get("embedding") is not None)
         return {"subscription": subscription, "plan": plan.public_dict(), "usage": {"employees": employee_count, "face_templates": face_count}}
 
-    async def create_payment(self, organization_id: str, plan_code: str, order_code: str, expires_at: datetime) -> dict[str, Any]:
+    async def list_payment_methods(self, active_only: bool = True) -> list[dict[str, Any]]:
+        methods = sorted(self.payment_methods.values(), key=lambda item: int(item.get("display_order") or 0))
+        if active_only:
+            methods = [item for item in methods if int(item.get("active", 0)) == 1]
+        return [dict(item) for item in methods]
+
+    async def create_payment(
+        self,
+        organization_id: str,
+        plan_code: str,
+        order_code: str,
+        expires_at: datetime,
+        payment_method: str = "vietqr",
+    ) -> dict[str, Any]:
         plan = get_plan(plan_code)
         if plan.contact_only:
             raise ValueError("contact_required")
+        method = self.payment_methods.get(str(payment_method or "").strip().lower())
+        if method is None or int(method.get("active", 0)) != 1:
+            raise ValueError("payment_method_inactive")
         payment = {
             "id": str(uuid4()),
             "organization_id": organization_id,
@@ -385,11 +428,31 @@ class InMemoryRepository:
             "plan_code": plan.code,
             "amount_vnd": plan.monthly_price_vnd,
             "status": "PENDING",
-            "provider": "sepay",
+            "provider": method["provider"],
+            "payment_method": method["code"],
+            "payment_method_id": method.get("id"),
             "expires_at": expires_at.isoformat(),
             "created_at": _now().isoformat(),
         }
         self.payments[order_code] = payment
+        return payment
+
+    async def update_payment_provider(
+        self,
+        order_code: str,
+        payment_url: str | None = None,
+        qr_code_url: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payment = self.payments.get(order_code)
+        if payment is None:
+            raise KeyError(order_code)
+        if payment_url is not None:
+            payment["payment_url"] = payment_url
+        if qr_code_url is not None:
+            payment["qr_code_url"] = qr_code_url
+        if metadata:
+            payment["metadata"] = {**(payment.get("metadata") or {}), **metadata}
         return payment
 
     async def get_payment(self, organization_id: str, order_code: str) -> dict[str, Any] | None:
@@ -422,7 +485,7 @@ class InMemoryRepository:
             "status": "ACTIVE",
             "starts_at": now.isoformat(),
             "ends_at": (now + timedelta(days=plan.duration_days or 30)).isoformat(),
-            "provider": "sepay",
+            "provider": payment.get("provider") or "vietqr",
             "provider_reference": order_code,
         }
         self.subscriptions.append(subscription)
@@ -1754,12 +1817,34 @@ class PrismaRepository(PrismaBillingMixin):
             "amount_vnd": payment.amountVnd,
             "status": str(payment.status),
             "provider": payment.provider,
+            "payment_method": getattr(payment, "paymentMethodId", None),
             "provider_transaction_id": getattr(payment, "providerTransactionId", None),
             "transfer_content": getattr(payment, "transferContent", None),
             "payment_url": getattr(payment, "paymentUrl", None),
             "qr_code_url": getattr(payment, "qrCodeUrl", None),
             "expires_at": payment.expiresAt.isoformat() if payment.expiresAt else None,
             "paid_at": payment.paidAt.isoformat() if payment.paidAt else None,
+        }
+
+    @staticmethod
+    def _payment_method_to_dict(method: Any) -> dict[str, Any]:
+        if isinstance(method, dict):
+            return {
+                "code": method.get("code"),
+                "name": method.get("name"),
+                "provider": method.get("provider"),
+                "environment": method.get("environment") or settings.payment_environment,
+                "active": int(method.get("active", method.get("is_active", 0))),
+                "display_order": int(method.get("display_order", 0)),
+            }
+        return {
+            "id": method.id,
+            "code": method.code,
+            "name": method.name,
+            "provider": method.provider,
+            "environment": method.environment,
+            "active": 1 if method.isActive else 0,
+            "display_order": method.displayOrder,
         }
 
     @staticmethod

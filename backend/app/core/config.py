@@ -49,8 +49,27 @@ class Settings(BaseSettings):
     # SaaS onboarding and billing. Secrets stay server-side; clients only see
     # the public QR URL and order status.
     trial_duration_days: int = 14
+    payment_environment: str = "sandbox"
+    payment_request_timeout_seconds: float = 10.0
     sepay_bank_account: str = ""
     sepay_bank_code: str = ""
+    vietqr_bank_account: str = ""
+    vietqr_bank_code: str = ""
+    vietqr_account_name: str = ""
+    momo_partner_code: str = ""
+    momo_access_key: str = ""
+    momo_secret_key: str = ""
+    momo_redirect_url: str = ""
+    momo_ipn_url: str = ""
+    momo_endpoint_sandbox: str = "https://test-payment.momo.vn/v2/gateway/api/create"
+    momo_endpoint_production: str = "https://payment.momo.vn/v2/gateway/api/create"
+    zalopay_app_id: int = 0
+    zalopay_key1: str = ""
+    zalopay_key2: str = ""
+    zalopay_redirect_url: str = ""
+    zalopay_callback_url: str = ""
+    zalopay_endpoint_sandbox: str = "https://sb-openapi.zalopay.vn/v2/create"
+    zalopay_endpoint_production: str = "https://openapi.zalopay.vn/v2/create"
     sepay_webhook_api_key: str = ""
     sepay_order_prefix: str = "CV"
     payment_order_ttl_minutes: int = 15

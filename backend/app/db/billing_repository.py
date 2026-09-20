@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
+from app.billing.payment_providers import PAYMENT_METHOD_CATALOG
 from app.billing.plans import get_plan
 from app.core.security import hash_password
 
@@ -39,6 +40,40 @@ class PrismaBillingMixin:
                 },
             },
         )
+
+    async def _ensure_prisma_payment_methods(self) -> list[Any]:
+        methods = []
+        for item in PAYMENT_METHOD_CATALOG:
+            method = await self.client.paymentmethod.upsert(
+                where={"code": item["code"]},
+                data={
+                    "update": {
+                        "name": item["name"],
+                        "provider": item["provider"],
+                        "displayOrder": item["display_order"],
+                    },
+                    "create": {
+                        "code": item["code"],
+                        "name": item["name"],
+                        "provider": item["provider"],
+                        "environment": "sandbox",
+                        "isActive": True,
+                        "displayOrder": item["display_order"],
+                    },
+                },
+            )
+            methods.append(method)
+        return methods
+
+    async def list_payment_methods(self, active_only: bool = True) -> list[dict[str, Any]]:
+        await self._ensure_connected()
+        await self._ensure_prisma_payment_methods()
+        where = {"isActive": True} if active_only else None
+        methods = await self.client.paymentmethod.find_many(
+            where=where,
+            order=[{"displayOrder": "asc"}, {"name": "asc"}],
+        )
+        return [self._payment_method_to_dict(method) for method in methods]
 
     async def register_account(self, email: str, password: str, full_name: str, organization_name: str) -> dict[str, Any]:
         await self._ensure_connected()
@@ -155,11 +190,24 @@ class PrismaBillingMixin:
             "usage": {"employees": len(employees), "face_templates": len(faces)},
         }
 
-    async def create_payment(self, organization_id: str, plan_code: str, order_code: str, expires_at: datetime) -> dict[str, Any]:
+    async def create_payment(
+        self,
+        organization_id: str,
+        plan_code: str,
+        order_code: str,
+        expires_at: datetime,
+        payment_method: str = "vietqr",
+    ) -> dict[str, Any]:
         await self._ensure_connected()
         plan = get_plan(plan_code)
         if plan.contact_only:
             raise ValueError("contact_required")
+        await self._ensure_prisma_payment_methods()
+        method = await self.client.paymentmethod.find_unique(
+            where={"code": str(payment_method or "").strip().lower()},
+        )
+        if method is None or not method.isActive:
+            raise ValueError("payment_method_inactive")
         await self._ensure_prisma_plan(plan.code)
         payment = await self.client.paymenttransaction.create(
             data={
@@ -168,10 +216,36 @@ class PrismaBillingMixin:
                 "planCode": plan.code,
                 "amountVnd": plan.monthly_price_vnd,
                 "status": "PENDING",
-                "provider": "sepay",
+                "provider": method.provider,
+                "paymentMethodId": method.id,
                 "expiresAt": expires_at,
             }
         )
+        return self._payment_to_dict(payment)
+
+    async def update_payment_provider(
+        self,
+        order_code: str,
+        payment_url: str | None = None,
+        qr_code_url: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        await self._ensure_connected()
+        payment = await self.client.paymenttransaction.find_unique(where={"orderCode": order_code})
+        if payment is None:
+            raise KeyError(order_code)
+        data: dict[str, Any] = {}
+        if payment_url is not None:
+            data["paymentUrl"] = payment_url
+        if qr_code_url is not None:
+            data["qrCodeUrl"] = qr_code_url
+        if metadata:
+            data["metadata"] = metadata
+        if data:
+            payment = await self.client.paymenttransaction.update(
+                where={"id": payment.id},
+                data=data,
+            )
         return self._payment_to_dict(payment)
 
     async def get_payment(self, organization_id: str, order_code: str) -> dict[str, Any] | None:
@@ -217,7 +291,7 @@ class PrismaBillingMixin:
                 "status": "ACTIVE",
                 "startsAt": paid_at,
                 "endsAt": paid_at + timedelta(days=plan.duration_days or 30),
-                "provider": "sepay",
+                "provider": str(getattr(payment, "provider", None) or "vietqr"),
                 "providerReference": order_code,
                 "autoRenew": False,
             }

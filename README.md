@@ -150,7 +150,7 @@ Chạy toàn bộ kiểm thử và build kiểm tra bằng một lệnh từ th�
 4. Nếu camera không hỗ trợ ONVIF, đánh dấu vào tùy chọn **Quét bổ sung toàn bộ subnet /24**.
 5. Nhập tên hiển thị, tài khoản và mật khẩu camera để lưu vào hệ thống an toàn.
 
-## 💳 Cấu hình Google và SePay
+## 💳 Cấu hình Google và thanh toán
 
 Đăng nhập Google cần dùng cùng một OAuth Web Client ID ở hai nơi:
 
@@ -162,13 +162,26 @@ GOOGLE_CLIENT_ID=...apps.googleusercontent.com
 VITE_GOOGLE_CLIENT_ID=...apps.googleusercontent.com
 ```
 
-Thanh toán cần đặt thông tin nhận tiền ở backend; không đưa API key vào desktop/mobile:
+Thanh toán dùng sandbox mặc định. Các phương thức `momo`, `zalopay`, `vietqr` được seed vào bảng `payment_methods`; `isActive=1` bật phương thức, `isActive=0` tắt phương thức. API key chỉ nằm ở backend, không đưa vào desktop/mobile:
 
 ```bash
-SEPAY_BANK_ACCOUNT=0123456789
-SEPAY_BANK_CODE=VCB
-SEPAY_WEBHOOK_API_KEY=secret-from-sepay
-SEPAY_ORDER_PREFIX=CV
+PAYMENT_ENVIRONMENT=sandbox
+VIETQR_BANK_ACCOUNT=0123456789
+VIETQR_BANK_CODE=VCB
+VIETQR_ACCOUNT_NAME=COVAVISION
+
+# Khi được cấp sandbox/prod key thì điền ở backend.
+MOMO_PARTNER_CODE=
+MOMO_ACCESS_KEY=
+MOMO_SECRET_KEY=
+MOMO_REDIRECT_URL=https://your-domain.example/payment/momo/return
+MOMO_IPN_URL=https://your-domain.example/api/v1/billing/webhooks/momo
+
+ZALOPAY_APP_ID=0
+ZALOPAY_KEY1=
+ZALOPAY_KEY2=
+ZALOPAY_REDIRECT_URL=https://your-domain.example/payment/zalopay/return
+ZALOPAY_CALLBACK_URL=https://your-domain.example/api/v1/billing/webhooks/zalopay
 ```
 
 Webhook production phải là HTTPS public URL trỏ tới `/api/v1/billing/webhooks/sepay`. Backend chỉ kích hoạt khi đúng order, đúng số tiền, chưa hết hạn và chưa xử lý trước đó. Xem thêm [tài liệu webhook SePay](https://developer.sepay.vn/vi/sepay-webhooks/tich-hop-webhook).
