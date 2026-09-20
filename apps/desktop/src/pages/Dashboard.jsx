@@ -92,20 +92,23 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState({ total: 0, today: 0, accepted: 0 })
   const [recent, setRecent] = useState([])
+  const [todayAll, setTodayAll] = useState([])
   const [employees, setEmployees] = useState([])
   const [cameras, setCameras] = useState([])
 
   useEffect(() => {
     async function load() {
       try {
-        const [statsR, recentR, empR, camR] = await Promise.all([
+        const [statsR, recentR, todayR, empR, camR] = await Promise.all([
           api.getStats().catch(() => null),
           api.getRecentActivity().catch(() => null),
+          api.getTodayAttendance().catch(() => null),
           api.getEmployees().catch(() => null),
           api.getCameras().catch(() => null),
         ])
         if (statsR) setStats({ total: statsR.total || 0, today: statsR.today || 0, accepted: statsR.accepted || 0 })
         setRecent(recentR?.records || recentR?.attendance || [])
+        setTodayAll(todayR?.records || todayR?.attendance || [])
         const empList = empR?.employees || empR?.data || []
         setEmployees(empList)
         setCameras(camR?.cameras || camR?.data || [])
@@ -120,9 +123,12 @@ export default function Dashboard() {
 
   /* Derived data */
   const registeredCount = useMemo(() => employees.filter(e => e.has_face || e.registered || e.face_count > 0).length, [employees])
-  const todayRecords = useMemo(() => recent.filter(r => {
-    try { return new Date(r.captured_at || r.created_at).toDateString() === new Date().toDateString() } catch { return false }
-  }), [recent])
+  const todayRecords = useMemo(() => {
+    const source = todayAll.length > 0 ? todayAll : recent
+    return source.filter(r => {
+      try { return new Date(r.captured_at || r.created_at).toDateString() === new Date().toDateString() } catch { return false }
+    })
+  }, [todayAll, recent])
 
   /* Mini chart data */
   const hourlyData = useMemo(() => {

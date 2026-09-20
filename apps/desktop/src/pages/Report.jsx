@@ -26,9 +26,16 @@ const PRESET_RANGES = [
   { id: 'all', label: 'Toàn bộ' },
 ]
 
+function formatLocalDate(d) {
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 function getPresetDates(presetId) {
   const now = new Date()
-  const toDateStr = (d) => d.toISOString().split('T')[0]
+  const toDateStr = (d) => formatLocalDate(d)
 
   switch (presetId) {
     case 'today':
@@ -72,7 +79,7 @@ export default function Report() {
     setLoading(true)
     setError('')
     try {
-      const filters = {}
+      const filters = { limit: 500 }
       if (start) filters.start_date = start
       if (end) filters.end_date = end
       if (status && status !== 'ALL') filters.status = status

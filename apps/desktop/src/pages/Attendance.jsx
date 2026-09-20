@@ -5,6 +5,7 @@ import { api } from '../services/api'
 import { openBackendMjpegStream } from '../services/backendMjpegStream'
 import { ROUTES } from '../config/routes'
 import { speakAttendanceOutcome } from '../services/ttsService'
+import { useToast } from '../components/Toast'
 import { isLikelyFaceFrame } from '../utils/faceFrameCheck'
 import { normalizeFaceDetectionResponse } from '../utils/faceDetection'
 import CameraSpeakerSettingsModal from '../components/CameraSpeakerSettingsModal'
@@ -45,6 +46,15 @@ import {
 } from '../utils/cameraUtils'
 
 export default function Attendance() {
+  const { toast } = useToast() || {}
+  const showAlert = (message, type = 'error') => {
+    if (toast && typeof toast[type] === 'function') {
+      toast[type](message)
+    } else {
+      console.warn(`[Toast ${type}]`, message)
+    }
+  }
+
   const [cameraRunning, setCameraRunning] = useState(false)
   const [cameraLoading, setCameraLoading] = useState(false)
   const [cameraRuntimeMode, setCameraRuntimeMode] = useState(null)
@@ -644,7 +654,7 @@ export default function Attendance() {
       } catch (error) {
         if (cancelled) return
         console.error(error)
-        window.alert(getCameraErrorMessage(error, requiresSecureContext))
+        showAlert(getCameraErrorMessage(error, requiresSecureContext), 'error')
         stopBrowserCameraStream()
         setCameraRunning(false)
         setCameraRuntimeMode(null)
@@ -845,7 +855,7 @@ export default function Attendance() {
   async function handleStartBrowserCamera() {
     if (!selectedCamera) return
     if (!browserCameraSupported) {
-      window.alert('Thiết bị hoặc trình duyệt hiện tại chưa hỗ trợ mở camera trực tiếp bằng getUserMedia.')
+      showAlert('Thiết bị hoặc trình duyệt hiện tại chưa hỗ trợ mở camera trực tiếp bằng getUserMedia.', 'warning')
       return
     }
 
@@ -895,7 +905,7 @@ export default function Attendance() {
       setActiveCameraId(selectedCamera.id || '')
     } catch (error) {
       const message = getCameraErrorMessage(error, requiresSecureContext)
-      window.alert(message)
+      showAlert(message, 'error')
     }
 
     setCameraLoading(false)
@@ -903,7 +913,7 @@ export default function Attendance() {
 
   async function handleStartCamera() {
     if (!selectedCamera) {
-      window.alert('Vui lòng chọn camera đã lưu trước khi bật.')
+      showAlert('Vui lòng chọn camera đã lưu trước khi bật.', 'warning')
       return
     }
 
@@ -926,10 +936,10 @@ export default function Attendance() {
         setCameraRuntimeMode('backend')
         setActiveCameraId(selectedCamera.id || res.camera_id || '')
       } else {
-        window.alert(res.message || 'Không thể bật camera qua CovaVision API')
+        showAlert(res.message || 'Không thể bật camera qua CovaVision API', 'error')
       }
     } catch (error) {
-      window.alert(error?.message || 'Không thể kết nối backend')
+      showAlert(error?.message || 'Không thể kết nối backend', 'error')
     } finally {
       setCameraLoading(false)
     }
@@ -966,7 +976,7 @@ export default function Attendance() {
     const detectedUserId = String(options?.detectedUserId || '').trim()
 
     if (!cameraRunning || !clientAttendanceCameraActive) {
-      window.alert('Hãy bật camera trước khi quét mặt.')
+      showAlert('Hãy bật camera trước khi quét mặt.', 'warning')
       return { success: false }
     }
 
@@ -975,14 +985,14 @@ export default function Attendance() {
       ? videoRef.current
       : (rtspImgDomRef.current || imgRef.current)
     if (!source || !canvasRef.current) {
-      window.alert('Camera chưa sẵn sàng để chụp.')
+      showAlert('Camera chưa sẵn sàng để chụp.', 'warning')
       return { success: false }
     }
 
     const sourceWidth = cameraRuntimeMode === 'browser' ? source.videoWidth : source.naturalWidth
     const sourceHeight = cameraRuntimeMode === 'browser' ? source.videoHeight : source.naturalHeight
     if (!sourceWidth || !sourceHeight || (cameraRuntimeMode === 'browser' && source.readyState < 2)) {
-      window.alert('Luồng camera chưa sẵn sàng, vui lòng thử lại.')
+      showAlert('Luồng camera chưa sẵn sàng, vui lòng thử lại.', 'warning')
       return { success: false }
     }
 

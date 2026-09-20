@@ -43,7 +43,7 @@ def _page_values(limit: int | None, offset: int) -> tuple[int, int]:
         raise HTTPException(status_code=422, detail="offset phải lớn hơn hoặc bằng 0")
     if limit is not None and limit < 1:
         raise HTTPException(status_code=422, detail="limit phải lớn hơn 0")
-    return min(limit or 200, 100), offset
+    return min(limit or 500, 1000), offset
 
 
 async def _attendance_page(
