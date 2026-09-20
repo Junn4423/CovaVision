@@ -199,6 +199,9 @@ def _subscription_expired(value: Any) -> bool:
         return False
 
 
+_VIETNAM_TZ = timezone(timedelta(hours=7))
+
+
 def _parse_filter_datetime(val: Any, is_end: bool = False) -> datetime | None:
     if not val:
         return None
@@ -210,7 +213,8 @@ def _parse_filter_datetime(val: Any, is_end: bool = False) -> datetime | None:
     try:
         if len(val_str) == 10:  # YYYY-MM-DD
             time_part = "23:59:59.999999" if is_end else "00:00:00"
-            return datetime.fromisoformat(f"{val_str}T{time_part}").replace(tzinfo=timezone.utc)
+            dt_local = datetime.fromisoformat(f"{val_str}T{time_part}").replace(tzinfo=_VIETNAM_TZ)
+            return dt_local.astimezone(timezone.utc)
         clean = val_str.replace("Z", "+00:00")
         dt = datetime.fromisoformat(clean)
         if dt.tzinfo is None:
@@ -218,9 +222,6 @@ def _parse_filter_datetime(val: Any, is_end: bool = False) -> datetime | None:
         return dt
     except (TypeError, ValueError):
         return None
-
-
-_VIETNAM_TZ = timezone(timedelta(hours=7))
 
 
 def _compute_shift_info(
@@ -1040,7 +1041,7 @@ class InMemoryRepository:
         except (TypeError, ValueError):
             offset = 0
         try:
-            limit = min(201, max(1, int(filters.get("limit", 200) or 200)))
+            limit = min(10001, max(1, int(filters.get("limit", 200) or 200)))
         except (TypeError, ValueError):
             limit = 200
         return items[offset: offset + limit]
@@ -2034,7 +2035,7 @@ class PrismaRepository(PrismaBillingMixin):
             where=where,
             order={"capturedAt": "desc"},
             skip=max(0, int(filters.get("offset", 0) or 0)),
-            take=min(201, max(1, int(filters.get("limit", 200) or 200))),
+            take=min(10001, max(1, int(filters.get("limit", 200) or 200))),
             include={"employee": True, "camera": True},
         )
         return [self._attendance_to_dict(record) for record in records]

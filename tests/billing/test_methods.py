@@ -33,11 +33,12 @@ def test_payment_methods_are_database_driven_and_active_flag_controls_visibility
         "momo",
         "zalopay",
         "vietqr",
+        "stripe",
     }
 
     repository.payment_methods["momo"]["active"] = 0
     methods = client.get("/api/v1/billing/payment-methods")
-    assert {item["code"] for item in methods.json()["payment_methods"]} == {"zalopay", "vietqr"}
+    assert {item["code"] for item in methods.json()["payment_methods"]} == {"zalopay", "vietqr", "stripe"}
 
     checkout = client.post(
         "/api/v1/billing/checkout",

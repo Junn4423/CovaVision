@@ -11,6 +11,12 @@ from app.billing.plans import get_plan
 from app.core.config import settings
 from app.core.security import hash_password
 
+try:
+    from prisma import fields
+except ImportError:  # pragma: no cover
+    fields = None
+
+
 
 class PrismaBillingMixin:
     """Mixin kept separate so the legacy HR repository stays readable."""
@@ -242,7 +248,7 @@ class PrismaBillingMixin:
         if qr_code_url is not None:
             data["qrCodeUrl"] = qr_code_url
         if metadata:
-            data["metadata"] = metadata
+            data["metadata"] = fields.Json(metadata) if (fields and isinstance(metadata, dict)) else metadata
         if data:
             payment = await self.client.paymenttransaction.update(
                 where={"id": payment.id},

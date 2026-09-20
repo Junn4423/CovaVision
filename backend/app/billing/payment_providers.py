@@ -6,6 +6,7 @@ production endpoints stay in server-side environment settings.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -24,6 +25,7 @@ PAYMENT_METHOD_CATALOG: tuple[dict[str, Any], ...] = (
     {"code": "momo", "name": "MoMo", "provider": "momo", "display_order": 10},
     {"code": "zalopay", "name": "ZaloPay", "provider": "zalopay", "display_order": 20},
     {"code": "vietqr", "name": "VietQR", "provider": "vietqr", "display_order": 30},
+    {"code": "stripe", "name": "Stripe (Thẻ quốc tế)", "provider": "stripe", "display_order": 40},
 )
 
 
@@ -231,12 +233,23 @@ class MomoProvider(PaymentProvider):
                 str(response.get("message") or "MoMo không tạo được giao dịch."),
                 code="payment_provider_rejected",
             )
+        pay_url = str(response.get("payUrl") or "") or None
+        raw_qr = str(response.get("qrCodeUrl") or "") or pay_url
+        qr_img_url = (
+            f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={quote(raw_qr)}"
+            if raw_qr
+            else None
+        )
         return PaymentIntent(
             provider=self.code,
-            payment_url=str(response.get("payUrl") or "") or None,
-            qr_code_url=str(response.get("qrCodeUrl") or "") or None,
+            payment_url=pay_url,
+            qr_code_url=qr_img_url,
             provider_transaction_id=str(response.get("requestId") or request_id),
-            metadata={"environment": self.environment, "organization_id": organization_id},
+            metadata={
+                "environment": self.environment,
+                "organization_id": organization_id,
+                "raw_qr": raw_qr,
+            },
         )
 
 
@@ -272,12 +285,12 @@ class ZaloPayProvider(PaymentProvider):
         )
         item = "[]"
         payload: dict[str, Any] = {
-            "appid": int(settings.zalopay_app_id),
-            "appuser": organization_id,
-            "apptime": app_time,
+            "app_id": int(settings.zalopay_app_id),
+            "app_user": organization_id,
+            "app_time": app_time,
             "amount": int(amount_vnd),
-            "apptransid": app_trans_id,
-            "embeddata": embed_data,
+            "app_trans_id": app_trans_id,
+            "embed_data": embed_data,
             "item": item,
             "description": f"CovaVision {order_code}",
             "bankcode": "",
@@ -285,7 +298,7 @@ class ZaloPayProvider(PaymentProvider):
         }
         payload["mac"] = build_zalopay_mac(
             settings.zalopay_key1,
-            app_id=payload["appid"],
+            app_id=payload["app_id"],
             app_trans_id=app_trans_id,
             app_user=organization_id,
             amount=payload["amount"],
@@ -299,15 +312,128 @@ class ZaloPayProvider(PaymentProvider):
                 str(response.get("return_message") or "ZaloPay không tạo được giao dịch."),
                 code="payment_provider_rejected",
             )
+        order_url = str(response.get("order_url") or "") or None
+        raw_qr = str(response.get("qr_code") or "") or order_url
+        qr_img_url = (
+            f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={quote(raw_qr)}"
+            if raw_qr
+            else None
+        )
         return PaymentIntent(
             provider=self.code,
-            payment_url=str(response.get("order_url") or "") or None,
-            qr_code_url=str(response.get("qr_code") or "") or None,
+            payment_url=order_url,
+            qr_code_url=qr_img_url,
             provider_transaction_id=str(response.get("zp_trans_token") or "") or None,
             metadata={
                 "environment": self.environment,
                 "organization_id": organization_id,
                 "app_trans_id": app_trans_id,
+                "raw_qr": raw_qr,
+            },
+        )
+
+
+class StripeProvider(PaymentProvider):
+    code = "stripe"
+
+    def __init__(self, *, environment: str, timeout: float) -> None:
+        super().__init__(
+            environment=environment,
+            endpoint="https://api.stripe.com/v1/checkout/sessions",
+            timeout=timeout,
+        )
+
+    async def create_payment(
+        self,
+        *,
+        order_code: str,
+        amount_vnd: int,
+        organization_id: str,
+    ) -> PaymentIntent:
+        api_key = settings.stripe_secret_key.strip()
+        if not api_key:
+            raise PaymentProviderError(
+                "Chưa cấu hình đủ key Stripe.",
+                code="payment_provider_not_configured",
+            )
+        if not settings.stripe_allow_live_mode and not api_key.startswith("sk_test_"):
+            raise PaymentProviderError(
+                "Chỉ cho phép sử dụng Stripe Sandbox (sk_test_*) trong môi trường hiện tại.",
+                code="payment_provider_mode_invalid",
+            )
+
+        currency = (settings.stripe_currency or "usd").strip().lower()
+        if currency == "vnd":
+            unit_amount = int(amount_vnd)
+        else:
+            # Quy đổi VND sang USD cents (1 USD ~ 25,400 VND), tối thiểu 50 cents ($0.50)
+            vnd_rate = 25400.0
+            unit_amount = max(50, int(round((amount_vnd / vnd_rate) * 100)))
+
+        success_url = (
+            settings.stripe_success_url.strip()
+            or "http://localhost:5173/billing?status=success&session_id={CHECKOUT_SESSION_ID}"
+        )
+        cancel_url = (
+            settings.stripe_cancel_url.strip()
+            or "http://localhost:5173/billing?status=cancelled"
+        )
+
+        try:
+            import stripe
+
+            stripe.api_key = api_key
+            stripe.max_network_retries = 2
+
+            session = await asyncio.to_thread(
+                stripe.checkout.Session.create,
+                payment_method_types=["card"],
+                line_items=[
+                    {
+                        "price_data": {
+                            "currency": currency,
+                            "product_data": {
+                                "name": f"Gói dịch vụ CovaVision ({order_code})",
+                                "description": f"Thanh toán đơn hàng {order_code}",
+                            },
+                            "unit_amount": unit_amount,
+                        },
+                        "quantity": 1,
+                    }
+                ],
+                mode="payment",
+                client_reference_id=order_code,
+                success_url=success_url,
+                cancel_url=cancel_url,
+                metadata={
+                    "order_code": order_code,
+                    "organization_id": organization_id,
+                },
+            )
+        except Exception as exc:
+            raise PaymentProviderError(
+                f"Stripe không tạo được giao dịch: {exc}",
+                code="payment_provider_rejected",
+            ) from exc
+
+        session_url = session.url
+        qr_img_url = (
+            f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={quote(session_url)}"
+            if session_url
+            else None
+        )
+        return PaymentIntent(
+            provider=self.code,
+            payment_url=session_url,
+            qr_code_url=qr_img_url,
+            provider_transaction_id=session.id,
+            metadata={
+                "environment": self.environment,
+                "organization_id": organization_id,
+                "session_id": session.id,
+                "currency": currency,
+                "unit_amount": unit_amount,
+                "raw_qr": session_url,
             },
         )
 
@@ -324,4 +450,6 @@ def build_payment_provider(code: str) -> PaymentProvider:
         return MomoProvider(environment=environment, timeout=timeout)
     if normalized == "zalopay":
         return ZaloPayProvider(environment=environment, timeout=timeout)
+    if normalized == "stripe":
+        return StripeProvider(environment=environment, timeout=timeout)
     raise PaymentProviderError("Phương thức thanh toán không được hỗ trợ.", code="unsupported_payment_method")

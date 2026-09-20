@@ -5,6 +5,7 @@ import pytest
 from app.billing.payment_providers import (
     MomoProvider,
     PaymentProviderError,
+    StripeProvider,
     VietQrProvider,
     ZaloPayProvider,
     build_payment_provider,
@@ -81,5 +82,57 @@ async def test_vietqr_without_bank_configuration_is_safe_and_factory_rejects_unk
     assert intent.payment_url is None
     assert intent.qr_code_url is None
 
+    provider = build_payment_provider("stripe")
+    assert isinstance(provider, StripeProvider)
+
     with pytest.raises(PaymentProviderError, match="không được hỗ trợ"):
         build_payment_provider("not-a-provider")
+
+
+@pytest.mark.asyncio
+async def test_stripe_provider_validates_credentials(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "stripe_secret_key", "")
+    provider = StripeProvider(environment="sandbox", timeout=2)
+    with pytest.raises(PaymentProviderError, match="Chưa cấu hình đủ key Stripe"):
+        await provider.create_payment(
+            order_code="CVORDER123",
+            amount_vnd=100000,
+            organization_id="org-1",
+        )
+
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_live_123456")
+    monkeypatch.setattr(settings, "stripe_allow_live_mode", False)
+    with pytest.raises(PaymentProviderError, match="Chỉ cho phép sử dụng Stripe Sandbox"):
+        await provider.create_payment(
+            order_code="CVORDER123",
+            amount_vnd=100000,
+            organization_id="org-1",
+        )
+
+
+@pytest.mark.asyncio
+async def test_stripe_provider_creates_intent_successfully(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_123456")
+    monkeypatch.setattr(settings, "stripe_currency", "usd")
+    provider = StripeProvider(environment="sandbox", timeout=2)
+
+    import stripe
+
+    class FakeSession:
+        id = "cs_test_mock_123"
+        url = "https://checkout.stripe.com/pay/cs_test_mock_123"
+
+    monkeypatch.setattr(stripe.checkout.Session, "create", lambda **kwargs: FakeSession())
+
+    intent = await provider.create_payment(
+        order_code="CVORDER123",
+        amount_vnd=254000,
+        organization_id="org-1",
+    )
+
+    assert intent.provider == "stripe"
+    assert intent.payment_url == "https://checkout.stripe.com/pay/cs_test_mock_123"
+    assert intent.provider_transaction_id == "cs_test_mock_123"
+    assert intent.metadata["currency"] == "usd"
+    assert intent.metadata["unit_amount"] == 1000  # $10.00
+

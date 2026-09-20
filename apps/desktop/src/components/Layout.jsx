@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Outlet, useLocation } from 'react-router-dom'
-import { Activity, BarChart3, Building2, Camera, CreditCard, LogOut, Menu, Moon, ScanFace, Settings, Sun, UserRound, Users, X } from 'lucide-react'
+import { Activity, BarChart3, Building2, Camera, CreditCard, ExternalLink, Globe, LogOut, Menu, Moon, ScanFace, Settings, Sun, UserRound, Users, X } from 'lucide-react'
 import { api, clearSessionToken, SESSION_EXPIRED_EVENT } from '../services/api'
 import { useTheme } from '../contexts/ThemeContext'
 import { ROUTES } from '../config/routes'
@@ -48,9 +48,22 @@ export default function Layout() {
 
   useEffect(() => {
     const handleKiosk = (e) => setIsKiosk(Boolean(e.detail))
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && isKiosk) {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {})
+        }
+        setIsKiosk(false)
+        window.dispatchEvent(new CustomEvent('covavision:kiosk-mode', { detail: false }))
+      }
+    }
     window.addEventListener('covavision:kiosk-mode', handleKiosk)
-    return () => window.removeEventListener('covavision:kiosk-mode', handleKiosk)
-  }, [])
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('covavision:kiosk-mode', handleKiosk)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isKiosk])
 
   useEffect(() => {
     if (window.innerWidth < 1024) setSidebarOpen(false)
@@ -219,6 +232,17 @@ export default function Layout() {
           >
             <LogOut size={15} /> Đăng xuất
           </button>
+          <a
+            href="https://covasol.com.vn"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2.5 flex items-center justify-center gap-1.5 py-1 text-xs font-medium text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 transition-colors"
+            title="Website Covasol (covasol.com.vn)"
+          >
+            <Globe size={13} />
+            <span>Website covasol.com.vn</span>
+            <ExternalLink size={11} />
+          </a>
         </div>
       </aside>
 
@@ -244,6 +268,17 @@ export default function Layout() {
           <div className="flex-1 text-sm font-semibold" style={{ color: 'var(--cv-text-secondary)' }}>
             Hệ thống điểm danh khuôn mặt
           </div>
+          <a
+            href="https://covasol.com.vn"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="cv-btn cv-btn-ghost cv-btn-sm text-xs font-semibold gap-1.5 hidden md:inline-flex text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400"
+            title="Website Covasol (covasol.com.vn)"
+          >
+            <Globe size={14} />
+            <span>Liên hệ Covasol</span>
+            <ExternalLink size={12} />
+          </a>
           <NavLink to={ROUTES.attendance} className="cv-btn cv-btn-primary cv-btn-sm hidden sm:inline-flex">
             <ScanFace size={15} /> Bắt đầu điểm danh
           </NavLink>

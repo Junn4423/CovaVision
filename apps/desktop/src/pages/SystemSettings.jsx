@@ -9,6 +9,8 @@ import {
   Clock,
   Cpu,
   Database,
+  ExternalLink,
+  Globe,
   Info,
   RotateCcw,
   Save,
@@ -405,6 +407,27 @@ export default function SystemSettings() {
                     Quản lý
                   </Button>
                 </Link>
+              </div>
+
+              <div className="p-4 rounded-2xl border border-[var(--cv-border-default)] bg-[var(--cv-bg-surface-elevated)] flex items-center justify-between sm:col-span-2">
+                <div>
+                  <h4 className="font-bold text-sm text-[var(--cv-text-primary)] flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-[var(--cv-brand-500)]" />
+                    Hỗ trợ & Liên hệ Covasol
+                  </h4>
+                  <p className="text-xs text-[var(--cv-text-tertiary)] mt-0.5">
+                    Tư vấn triển khai AI camera, gói doanh nghiệp và dịch vụ kỹ thuật.
+                  </p>
+                </div>
+                <a
+                  href="https://covasol.com.vn"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Button variant="secondary" size="sm" icon={ExternalLink}>
+                    covasol.com.vn
+                  </Button>
+                </a>
               </div>
             </div>
 

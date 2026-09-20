@@ -93,8 +93,8 @@ export default function Report() {
       if (status && status !== 'ALL') filters.status = status
 
       const [logsRes, tsRes] = await Promise.all([
-        api.getReport(filters).catch(() => ({ records: [] })),
-        api.getTimesheetReport({ start_date: start, end_date: end }).catch(() => ({ timesheet: [], stats: null })),
+        api.getReport(filters),
+        api.getTimesheetReport({ start_date: start, end_date: end }),
       ])
 
       const list = Array.isArray(logsRes?.records)

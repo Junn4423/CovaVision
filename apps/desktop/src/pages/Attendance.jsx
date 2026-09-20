@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckCircle2, Volume2, Sparkles, Send, Radio, Settings2, Maximize2, Minimize2, Clock } from 'lucide-react'
+import { CheckCircle2, Volume2, Sparkles, Send, Radio, Settings2, Maximize2, Minimize2, Clock, ArrowLeft } from 'lucide-react'
 import { api } from '../services/api'
 import { openBackendMjpegStream } from '../services/backendMjpegStream'
 import { ROUTES } from '../config/routes'
@@ -1136,18 +1136,18 @@ export default function Attendance() {
 
           const targetCameraId = currentSpeakerConfig.cameraId || speakerInfo.cameraId || targetCam?.id
 
-          console.log(`[Attendance] 📢 Phát loa camera ngoài cho "${employeeName}" qua API`)
+          console.log(`[Attendance] Phat loa camera ngoai cho "${employeeName}" qua API`)
           speakAttendanceViaCamera(employeeName, res?.attendance_type || 'auto', res, {
             cameraId: targetCameraId,
             volume: currentSpeakerConfig.volume,
             profileId: currentSpeakerConfig.profileId,
           }).then((speakRes) => {
-            console.log('[Attendance] Kết quả phát loa camera:', speakRes)
+            console.log('[Attendance] Ket qua phat loa camera:', speakRes)
           }).catch((err) => {
-            console.error('[Attendance] Lỗi phát loa camera:', err)
+            console.error('[Attendance] Loi phat loa camera:', err)
           })
         } else if (localStorage.getItem('covavision.tts_enabled') !== 'false') {
-          console.log(`[Attendance] 💻 Phát loa máy tính (PC) cho "${employeeName}"`)
+          console.log(`[Attendance] Phat loa may tinh (PC) cho "${employeeName}"`)
           speakAttendanceOutcome(employeeName, res?.attendance_type || 'auto', res)
         }
 
@@ -1306,17 +1306,30 @@ export default function Attendance() {
           >
             {/* Top Bar for Kiosk Mode */}
             {isKioskMode && (
-              <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-6 py-4 bg-gradient-to-b from-black/85 via-black/40 to-transparent backdrop-blur-xs text-white pointer-events-auto">
+              <div className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between px-4 sm:px-6 py-3.5 bg-gradient-to-b from-black/90 via-black/60 to-transparent backdrop-blur-md text-white pointer-events-auto select-none border-b border-white/10 shadow-2xl">
+                {/* Left: Back Button & Logo */}
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-purple-600/30 border border-purple-500/40 flex items-center justify-center text-purple-300 font-bold shadow-lg">
-                    CV
-                  </div>
-                  <div>
-                    <h2 className="text-sm font-bold tracking-wide flex items-center gap-2">
-                      <span>COVAVISION KIOSK</span>
-                      <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    </h2>
-                    <p className="text-xs text-slate-300">{selectedCamera?.name || 'Camera Chấm Công'}</p>
+                  <button
+                    type="button"
+                    onClick={exitKioskMode}
+                    className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 active:bg-slate-600 text-white border border-slate-600/80 text-xs sm:text-sm font-bold shadow-lg transition-all cursor-pointer hover:scale-105 active:scale-95"
+                    title="Quay lại trang quản trị (Phím Esc)"
+                  >
+                    <ArrowLeft size={16} className="text-rose-400" />
+                    <span>Quay lại trang</span>
+                  </button>
+
+                  <div className="hidden md:flex items-center gap-2.5 pl-3 border-l border-white/20">
+                    <div className="w-8 h-8 rounded-lg bg-purple-600/40 border border-purple-400/50 flex items-center justify-center text-purple-200 font-bold text-xs shadow-md">
+                      CV
+                    </div>
+                    <div>
+                      <h2 className="text-xs font-bold tracking-wide flex items-center gap-1.5">
+                        <span>COVAVISION KIOSK</span>
+                        <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      </h2>
+                      <p className="text-[11px] text-slate-300">{selectedCamera?.name || 'Camera Chấm Công'}</p>
+                    </div>
                   </div>
                 </div>
 
@@ -1330,7 +1343,7 @@ export default function Attendance() {
                   </div>
                 </div>
 
-                {/* Right: Today Scan Stat & Exit Button */}
+                {/* Right: Today Scan Stat & Prominent Red Exit Button */}
                 <div className="flex items-center gap-3">
                   <div className="hidden sm:flex flex-col items-end text-xs text-slate-300">
                     <span className="font-semibold text-white">{todayRecords.length} lượt</span>
@@ -1339,11 +1352,11 @@ export default function Attendance() {
                   <button
                     type="button"
                     onClick={exitKioskMode}
-                    className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 active:bg-white/30 text-white border border-white/20 text-xs font-semibold backdrop-blur-md transition-all cursor-pointer shadow-lg"
-                    title="Thoát chế độ Kiosk (Esc)"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white border border-rose-400/50 text-xs sm:text-sm font-bold shadow-xl shadow-rose-950/60 transition-all cursor-pointer hover:scale-105 active:scale-95"
+                    title="Quay lại trang quản trị (Phím Esc)"
                   >
-                    <Minimize2 size={15} />
-                    <span>Thoát (Esc)</span>
+                    <ArrowLeft size={16} />
+                    <span>Quay lại trang (Esc)</span>
                   </button>
                 </div>
               </div>
@@ -1500,7 +1513,8 @@ export default function Attendance() {
                     )}
                   </div>
                   <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-bold">
-                    <span>🕒 {currentTime.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                    <Clock size={14} className="text-emerald-300 shrink-0" />
+                    <span>{currentTime.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                   </div>
                   <p className="text-xs text-slate-400 pt-2 border-t border-white/10">
                     Vui lòng di chuyển để tiếp tục lượt tiếp theo
@@ -1511,13 +1525,25 @@ export default function Attendance() {
 
             {/* Kiosk Mode Bottom Bar */}
             {isKioskMode && (
-              <div className="absolute bottom-0 left-0 right-0 z-30 px-6 py-3.5 bg-gradient-to-t from-black/85 via-black/40 to-transparent backdrop-blur-xs flex items-center justify-between text-xs text-slate-300">
+              <div className="absolute bottom-0 left-0 right-0 z-50 px-4 sm:px-6 py-3 bg-gradient-to-t from-black/90 via-black/60 to-transparent backdrop-blur-md flex items-center justify-between text-xs text-slate-300 pointer-events-auto border-t border-white/10 shadow-2xl">
                 <div className="flex items-center gap-2.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="font-medium text-white">AI Face Recognition • Đưa khuôn mặt vào giữa khung hình</span>
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                  <span className="font-medium text-white hidden sm:inline">Chấm công khuôn mặt tự động • Vui lòng nhìn thẳng vào camera</span>
+                  <span className="font-medium text-white sm:hidden">Chấm công tự động</span>
                 </div>
-                <div className="text-[11px] text-slate-400 font-mono">
-                  CovaVision v2.0 • Kiosk Mode
+                <div className="flex items-center gap-3">
+                  <span className="hidden md:inline-flex items-center gap-1.5 bg-black/50 px-3 py-1.5 rounded-lg border border-white/20 text-[11px] text-slate-300 shadow-sm">
+                    Phím tắt: <kbd className="px-1.5 py-0.5 rounded bg-white/20 font-mono font-bold text-white text-[10px] border border-white/30">Esc</kbd> để thoát
+                  </span>
+                  <button
+                    type="button"
+                    onClick={exitKioskMode}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-bold text-xs border border-rose-400/40 shadow-lg cursor-pointer transition-all hover:scale-105 active:scale-95"
+                    title="Quay lại trang quản trị (Phím Esc)"
+                  >
+                    <ArrowLeft size={14} />
+                    <span>Quay lại trang</span>
+                  </button>
                 </div>
               </div>
             )}
@@ -1697,11 +1723,11 @@ export default function Attendance() {
               <p>{describeCamera(selectedCamera)}</p>
               {speakerConfig.enabled ? (
                 <p className="text-xs text-emerald-700 font-medium flex items-center gap-1">
-                  <span>📢 Phát câu chào: <strong>Loa Camera</strong> ({speakerConfig.cameraName || 'Camera mạng'}) • Âm lượng {speakerConfig.volume}% [Loa PC đã câm]</span>
+                  <span>Phát câu chào: <strong>Loa Camera</strong> ({speakerConfig.cameraName || 'Camera mạng'}) • Âm lượng {speakerConfig.volume}% [Loa PC đã câm]</span>
                 </p>
               ) : (
                 <p className="text-xs text-slate-500">
-                  💻 Phát câu chào: <strong>Loa Máy tính (PC)</strong> [Loa Camera đã tắt]
+                  <span>Phát câu chào: <strong>Loa Máy tính (PC)</strong> [Loa Camera đã tắt]</span>
                 </p>
               )}
               {browserCameraSelected && (

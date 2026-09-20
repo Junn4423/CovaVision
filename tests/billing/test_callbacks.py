@@ -111,3 +111,38 @@ def test_zalopay_callback_is_idempotent(monkeypatch) -> None:
     assert client.post("/api/v1/billing/webhooks/zalopay", json=payload).status_code == 200
     assert client.post("/api/v1/billing/webhooks/zalopay", json=payload).status_code == 200
     assert len(repository.subscriptions) == 1
+
+
+def test_stripe_webhook_activates_subscription(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "stripe_webhook_secret", "")
+    repository = InMemoryRepository()
+    payment = asyncio.run(
+        repository.create_payment(
+            repository.organization_id,
+            "pro",
+            "CVSTRIPECALLBACK",
+            datetime.now(timezone.utc) + timedelta(minutes=10),
+            "stripe",
+        )
+    )
+
+    payload = {
+        "id": "evt_test_123",
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "id": "cs_test_session_123",
+                "client_reference_id": payment["order_code"],
+                "amount_total": 2000,
+                "currency": "usd",
+                "metadata": {"order_code": payment["order_code"]},
+            }
+        },
+    }
+
+    client = TestClient(create_app(repository=repository))
+    response = client.post("/api/v1/billing/webhooks/stripe", json=payload)
+    assert response.status_code == 200
+    assert response.json() == {"success": True}
+    assert repository.payments[payment["order_code"]]["status"] == "PAID"
+    assert repository.subscriptions[-1]["provider"] == "stripe"

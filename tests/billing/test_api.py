@@ -15,7 +15,7 @@ def test_billing_catalog_summary_checkout_and_payment_status(
 
     methods = client.get("/api/v1/billing/payment-methods")
     assert methods.status_code == 200
-    assert {item["code"] for item in methods.json()["payment_methods"]} == {"momo", "zalopay", "vietqr"}
+    assert {item["code"] for item in methods.json()["payment_methods"]} == {"momo", "zalopay", "vietqr", "stripe"}
     assert client.get("/api/v1/billing/me", headers=admin_headers).status_code == 200
 
     staff_checkout = client.post(
@@ -90,3 +90,25 @@ def test_billing_webhooks_reject_unauthenticated_or_malformed_requests(
         json={"data": "{}", "mac": "bad", "type": 1},
     )
     assert zalopay.status_code in {401, 503}
+
+
+def test_billing_sync_session_and_order(
+    client: TestClient,
+    admin_headers: dict[str, str],
+) -> None:
+    checkout = client.post(
+        "/api/v1/billing/checkout",
+        headers=admin_headers,
+        json={"plan_code": "standard", "payment_method": "vietqr"},
+    )
+    assert checkout.status_code == 200
+    order_code = checkout.json()["payment"]["order_code"]
+
+    sync_res = client.post(f"/api/v1/billing/payments/{order_code}/sync", headers=admin_headers)
+    assert sync_res.status_code == 200
+    assert sync_res.json()["success"] is True
+
+    session_sync = client.post("/api/v1/billing/sync-session", json={"order_code": order_code})
+    assert session_sync.status_code == 200
+    assert session_sync.json()["success"] is True
+

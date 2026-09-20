@@ -74,11 +74,17 @@ class Settings(BaseSettings):
     sepay_webhook_api_key: str = ""
     sepay_order_prefix: str = "CV"
     payment_order_ttl_minutes: int = 15
+    stripe_secret_key: str = ""
+    stripe_currency: str = "usd"
+    stripe_allow_live_mode: bool = False
+    stripe_webhook_secret: str = ""
+    stripe_success_url: str = ""
+    stripe_cancel_url: str = ""
     google_client_id: str = ""
     google_allowed_hosted_domain: str = ""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "../.env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -111,7 +117,11 @@ def _validate_settings(s: Settings) -> Settings:
 
 @lru_cache
 def get_settings() -> Settings:
-    return _validate_settings(Settings())
+    import os
+    s = _validate_settings(Settings())
+    if "DATABASE_URL" not in os.environ and s.database_url:
+        os.environ["DATABASE_URL"] = s.database_url
+    return s
 
 
 settings = get_settings()

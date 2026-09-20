@@ -2,16 +2,28 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import hmac
 import json
+import logging
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+import httpx
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
+
+
+def _hmac_sha256(key: str, value: str) -> str:
+    return hmac.new(key.encode("utf-8"), value.encode("utf-8"), hashlib.sha256).hexdigest()
+
 
 from app.api.deps import get_current_user, get_repository
 from app.billing.payment_providers import (
@@ -103,6 +115,10 @@ def _payment_public(payment: dict[str, Any]) -> dict[str, Any]:
         str(public.get("order_code") or ""),
         int(public.get("amount_vnd") or 0),
     )
+    if str(public.get("payment_method") or public.get("provider") or "").lower() == "vietqr":
+        public["bank_account"] = (settings.vietqr_bank_account or settings.sepay_bank_account).strip()
+        public["bank_code"] = (settings.vietqr_bank_code or settings.sepay_bank_code).strip()
+        public["account_name"] = settings.vietqr_account_name.strip()
     public.pop("provider_transaction_id", None)
     return public
 
@@ -209,6 +225,169 @@ async def checkout(
     return {"success": True, "payment": _payment_public(payment)}
 
 
+async def _sync_payment_with_provider(
+    payment: dict[str, Any],
+    repository: Repository,
+) -> dict[str, Any]:
+    """Actively checks the payment gateway API to verify if payment was completed.
+
+    Essential for desktop / local / behind-NAT environments where webhooks cannot reach.
+    """
+    if payment.get("status") == "PAID":
+        return payment
+
+    order_code = str(payment.get("order_code") or "").strip().upper()
+    provider = str(payment.get("provider") or payment.get("payment_method") or "").lower()
+    metadata = payment.get("metadata") or {}
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except Exception:
+            metadata = {}
+
+    # 1. STRIPE CHECKOUT
+    if provider == "stripe":
+        session_id = str(metadata.get("session_id") or payment.get("provider_transaction_id") or "").strip()
+        api_key = settings.stripe_secret_key.strip()
+        if session_id and api_key:
+            try:
+                import stripe
+
+                stripe.api_key = api_key
+                session = await asyncio.to_thread(stripe.checkout.Session.retrieve, session_id)
+                payment_status_val = getattr(session, "payment_status", "")
+                session_status_val = getattr(session, "status", "")
+                if payment_status_val == "paid" or session_status_val == "complete":
+                    amount_vnd = int(payment.get("amount_vnd") or 0)
+                    await _complete_callback_payment(
+                        repository,
+                        order_code=order_code,
+                        provider_transaction_id=str(session.id),
+                        amount_vnd=amount_vnd,
+                        transfer_content=f"Stripe Checkout {session.id}",
+                    )
+                    updated = await repository.get_payment_by_order(order_code)
+                    if updated:
+                        return updated
+            except Exception as exc:
+                logger.warning("Stripe sync check for %s: %s", order_code, exc)
+
+    # 2. MOMO GATEWAY
+    elif provider == "momo":
+        partner_code = settings.momo_partner_code.strip()
+        access_key = settings.momo_access_key.strip()
+        secret_key = settings.momo_secret_key.strip()
+        if partner_code and access_key and secret_key:
+            try:
+                query_url = (
+                    "https://test-payment.momo.vn/v2/gateway/api/query"
+                    if settings.payment_environment == "sandbox"
+                    else "https://payment.momo.vn/v2/gateway/api/query"
+                )
+                request_id = str(int(time.time() * 1000))
+                raw_sig = f"accessKey={access_key}&orderId={order_code}&partnerCode={partner_code}&requestId={request_id}"
+                signature = _hmac_sha256(secret_key, raw_sig)
+                async with httpx.AsyncClient(timeout=4.0) as client:
+                    resp = await client.post(
+                        query_url,
+                        json={
+                            "partnerCode": partner_code,
+                            "requestId": request_id,
+                            "orderId": order_code,
+                            "signature": signature,
+                            "lang": "vi",
+                        },
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if data.get("resultCode") == 0:
+                            amount_vnd = int(float(data.get("amount") or payment.get("amount_vnd") or 0))
+                            await _complete_callback_payment(
+                                repository,
+                                order_code=order_code,
+                                provider_transaction_id=str(data.get("transId") or order_code),
+                                amount_vnd=amount_vnd,
+                                transfer_content=f"MoMo {data.get('transId') or order_code}",
+                            )
+                            updated = await repository.get_payment_by_order(order_code)
+                            if updated:
+                                return updated
+            except Exception as exc:
+                logger.warning("MoMo sync check for %s: %s", order_code, exc)
+
+    # 3. ZALOPAY GATEWAY
+    elif provider == "zalopay":
+        app_id_val = settings.zalopay_app_id
+        key1 = settings.zalopay_key1.strip()
+        app_trans_id = metadata.get("app_trans_id") or payment.get("provider_transaction_id")
+        if app_id_val and key1 and app_trans_id:
+            try:
+                query_url = (
+                    "https://sb-openapi.zalopay.vn/v2/query"
+                    if settings.payment_environment == "sandbox"
+                    else "https://openapi.zalopay.vn/v2/query"
+                )
+                app_id_int = int(app_id_val)
+                mac_data = f"{app_id_int}|{app_trans_id}|{key1}"
+                mac = _hmac_sha256(key1, mac_data)
+                async with httpx.AsyncClient(timeout=4.0) as client:
+                    resp = await client.post(
+                        query_url,
+                        data={
+                            "app_id": app_id_int,
+                            "app_trans_id": app_trans_id,
+                            "mac": mac,
+                        },
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if data.get("return_code") == 1:
+                            amount_vnd = int(float(data.get("amount") or payment.get("amount_vnd") or 0))
+                            await _complete_callback_payment(
+                                repository,
+                                order_code=order_code,
+                                provider_transaction_id=str(data.get("zp_trans_id") or app_trans_id),
+                                amount_vnd=amount_vnd,
+                                transfer_content=f"ZaloPay {app_trans_id}",
+                            )
+                            updated = await repository.get_payment_by_order(order_code)
+                            if updated:
+                                return updated
+            except Exception as exc:
+                logger.warning("ZaloPay sync check for %s: %s", order_code, exc)
+
+    # 4. VIETQR / SEPAY
+    elif provider == "vietqr":
+        api_key = settings.sepay_webhook_api_key.strip()
+        if api_key:
+            try:
+                async with httpx.AsyncClient(timeout=4.0) as client:
+                    resp = await client.get(
+                        f"https://my.sepay.vn/userapi/transactions/list?pattern={quote(order_code)}",
+                        headers={"Authorization": f"Apikey {api_key}"},
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        txs = data.get("transactions") or []
+                        for tx in txs:
+                            tx_amount = int(float(tx.get("amount_in") or 0))
+                            if tx_amount >= int(payment["amount_vnd"]):
+                                await _complete_callback_payment(
+                                    repository,
+                                    order_code=order_code,
+                                    provider_transaction_id=str(tx.get("id") or order_code),
+                                    amount_vnd=tx_amount,
+                                    transfer_content=tx.get("transaction_content") or order_code,
+                                )
+                                updated = await repository.get_payment_by_order(order_code)
+                                if updated:
+                                    return updated
+            except Exception as exc:
+                logger.warning("SePay sync check for %s: %s", order_code, exc)
+
+    return payment
+
+
 @router.get("/payments/{order_code}")
 async def payment_status(
     order_code: str,
@@ -218,6 +397,68 @@ async def payment_status(
     payment = await repository.get_payment(_organization_id(current_user), order_code.strip().upper())
     if payment is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn thanh toán")
+    if payment.get("status") != "PAID":
+        payment = await _sync_payment_with_provider(payment, repository)
+    return {"success": True, "payment": _payment_public(payment)}
+
+
+@router.post("/payments/{order_code}/sync")
+async def sync_payment_order(
+    order_code: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+    repository: Repository = Depends(get_repository),
+) -> dict[str, Any]:
+    payment = await repository.get_payment(_organization_id(current_user), order_code.strip().upper())
+    if payment is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn thanh toán")
+    payment = await _sync_payment_with_provider(payment, repository)
+    return {"success": True, "payment": _payment_public(payment)}
+
+
+class SyncSessionRequest(BaseModel):
+    session_id: str | None = None
+    order_code: str | None = None
+
+
+@router.post("/sync-session")
+async def sync_payment_session(
+    payload: SyncSessionRequest,
+    repository: Repository = Depends(get_repository),
+) -> dict[str, Any]:
+    """Sync payment status across any window/tab using order_code or Stripe session_id."""
+    order_code = (payload.order_code or "").strip().upper()
+    session_id = (payload.session_id or "").strip()
+
+    payment = None
+    if order_code:
+        payment = await repository.get_payment_by_order(order_code)
+    elif session_id:
+        api_key = settings.stripe_secret_key.strip()
+        if api_key:
+            try:
+                import stripe
+
+                stripe.api_key = api_key
+                session = await asyncio.to_thread(stripe.checkout.Session.retrieve, session_id)
+                found_order = (
+                    getattr(session, "client_reference_id", None)
+                    or (session.get("metadata", {}).get("order_code") if hasattr(session, "get") else None)
+                    or ""
+                )
+                if not found_order and hasattr(session, "metadata") and session.metadata:
+                    found_order = session.metadata.get("order_code") or ""
+                found_order = str(found_order).strip().upper()
+                if found_order:
+                    payment = await repository.get_payment_by_order(found_order)
+            except Exception as exc:
+                logger.warning("Failed retrieving Stripe session %s: %s", session_id, exc)
+
+    if payment is None:
+        return {"success": False, "message": "Không tìm thấy đơn thanh toán cần đồng bộ"}
+
+    if payment.get("status") != "PAID":
+        payment = await _sync_payment_with_provider(payment, repository)
+
     return {"success": True, "payment": _payment_public(payment)}
 
 
@@ -340,4 +581,53 @@ async def zalopay_webhook(
         amount_vnd=amount,
         transfer_content=f"ZaloPay {app_trans_id}",
     )
+    return {"success": True}
+
+
+@router.post("/webhooks/stripe", include_in_schema=False)
+async def stripe_webhook(
+    request: Request,
+    repository: Repository = Depends(get_repository),
+) -> dict[str, bool]:
+    body = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+    webhook_secret = settings.stripe_webhook_secret.strip()
+
+    import stripe
+
+    if webhook_secret and sig_header:
+        try:
+            event = stripe.Webhook.construct_event(body, sig_header, webhook_secret)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Stripe webhook signature invalid",
+            ) from exc
+    else:
+        try:
+            event = json.loads(body.decode("utf-8"))
+        except Exception as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="Stripe webhook payload không hợp lệ",
+            ) from exc
+
+    event_type = event.get("type")
+    if event_type == "checkout.session.completed":
+        session = event.get("data", {}).get("object", {})
+        order_code = (
+            session.get("client_reference_id")
+            or session.get("metadata", {}).get("order_code")
+            or ""
+        ).strip().upper()
+        if order_code:
+            payment = await repository.get_payment_by_order(order_code)
+            amount_vnd = int(payment.get("amount_vnd") or 0) if payment else 0
+            await _complete_callback_payment(
+                repository,
+                order_code=order_code,
+                provider_transaction_id=str(session.get("id") or ""),
+                amount_vnd=amount_vnd,
+                transfer_content=f"Stripe Checkout {session.get('id')}",
+            )
     return {"success": True}
