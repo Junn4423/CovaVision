@@ -9,6 +9,9 @@ import json
 import os
 import time
 from typing import Any, Optional
+from urllib.parse import unquote, urlsplit, urlunsplit
+
+from cryptography.fernet import Fernet, InvalidToken
 
 from app.core.config import settings
 
@@ -99,3 +102,66 @@ def hash_access_token(token: str) -> str:
     """Return the database-safe digest used to persist a server-side session."""
 
     return hashlib.sha256(str(token).encode("utf-8")).hexdigest()
+
+
+def _camera_fernet() -> Fernet:
+    configured_key = str(settings.camera_encryption_key or "").strip()
+    if configured_key:
+        try:
+            return Fernet(configured_key.encode("ascii"))
+        except (ValueError, TypeError):
+            digest = hashlib.sha256(configured_key.encode("utf-8")).digest()
+    else:
+        digest = hashlib.sha256(settings.jwt_secret.encode("utf-8")).digest()
+    return Fernet(base64.urlsafe_b64encode(digest))
+
+
+def encrypt_camera_secret(value: str) -> str:
+    """Encrypt a camera credential while retaining a versioned migration marker."""
+
+    raw = str(value or "")
+    if not raw:
+        return ""
+    if raw.startswith("enc:v1:"):
+        return raw
+    return "enc:v1:" + _camera_fernet().encrypt(raw.encode("utf-8")).decode("ascii")
+
+
+def decrypt_camera_secret(value: str) -> str:
+    """Decrypt a camera credential; legacy plaintext remains readable for migration."""
+
+    raw = str(value or "")
+    if not raw or not raw.startswith("enc:v1:"):
+        return raw
+    try:
+        return _camera_fernet().decrypt(raw[7:].encode("ascii")).decode("utf-8")
+    except (InvalidToken, UnicodeDecodeError, ValueError):
+        return ""
+
+
+def normalize_camera_connection_url(
+    value: str,
+    username: str = "",
+    password: str = "",
+) -> tuple[str, str, str]:
+    """Remove URL userinfo and return its credentials for separate storage."""
+
+    raw = str(value or "").strip()
+    explicit_username = str(username or "")
+    explicit_password = str(password or "")
+    if not raw:
+        return raw, explicit_username, explicit_password
+    try:
+        parsed = urlsplit(raw)
+    except ValueError:
+        return raw, explicit_username, explicit_password
+    if not parsed.netloc or "@" not in parsed.netloc:
+        return raw, explicit_username, explicit_password
+    embedded_username = unquote(parsed.username or "")
+    embedded_password = unquote(parsed.password or "")
+    sanitized = urlunsplit((parsed.scheme, parsed.netloc.rsplit("@", 1)[-1], parsed.path, parsed.query, parsed.fragment))
+    return (
+        sanitized,
+        explicit_username or embedded_username,
+        explicit_password or embedded_password,
+    )

@@ -19,7 +19,14 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 from app.billing.plans import get_plan
-from app.core.security import hash_access_token, hash_password, verify_password
+from app.core.security import (
+    decrypt_camera_secret,
+    encrypt_camera_secret,
+    hash_access_token,
+    hash_password,
+    normalize_camera_connection_url,
+    verify_password,
+)
 from app.db.billing_repository import PrismaBillingMixin
 
 
@@ -546,6 +553,8 @@ class InMemoryRepository:
             return None
         if organization_id and str(camera.get("organization_id") or "") != str(organization_id):
             return None
+        if camera.get("password_secret"):
+            camera = {**camera, "password_secret": decrypt_camera_secret(camera["password_secret"])}
         return camera
 
     async def save_camera(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -560,6 +569,23 @@ class InMemoryRepository:
                 or internal_payload.get("rtsp_url")
                 or ""
             )
+        password_value = payload.get("password_secret") or payload.get("password")
+        connection_url, embedded_username, embedded_password = normalize_camera_connection_url(
+            str(internal_payload.get("connection_url") or current.get("connection_url") or ""),
+            str(payload.get("username") or ""),
+            str(password_value or ""),
+        )
+        internal_payload["connection_url"] = connection_url
+        if embedded_username and not str(payload.get("username") or "").strip():
+            internal_payload["username"] = embedded_username
+        if not str(password_value or "").strip() and embedded_password:
+            password_value = embedded_password
+        if str(password_value or "").strip():
+            internal_payload["password_secret"] = encrypt_camera_secret(str(password_value).strip())
+        elif current.get("password_secret"):
+            internal_payload["password_secret"] = encrypt_camera_secret(current["password_secret"])
+        for key in ("password", "passwordSecret", "secret"):
+            internal_payload.pop(key, None)
         camera = {
             **current,
             **internal_payload,
@@ -1095,7 +1121,10 @@ class PrismaRepository(PrismaBillingMixin):
         camera = await self.client.camera.find_unique(where={"id": camera_id})
         if camera is not None and organization_id and camera.organizationId != organization_id:
             camera = None
-        return self._camera_to_dict(camera) if camera else None
+        result = self._camera_to_dict(camera) if camera else None
+        if result and result.get("password_secret"):
+            result["password_secret"] = decrypt_camera_secret(result["password_secret"])
+        return result
 
     async def save_camera(self, payload: dict[str, Any]) -> dict[str, Any]:
         await self._ensure_connected()
@@ -1121,6 +1150,15 @@ class PrismaRepository(PrismaBillingMixin):
             or (getattr(current, "connectionUrl", "") if current else "")
             or ""
         ).strip()
+        password_value = payload.get("password_secret") or payload.get("password")
+        connection_url, embedded_username, embedded_password = normalize_camera_connection_url(
+            connection_url,
+            str(payload.get("username") or ""),
+            str(password_value or ""),
+        )
+        username = str(payload.get("username") or "").strip() or embedded_username or str(getattr(current, "username", "") or "").strip()
+        if not str(password_value or "").strip() and embedded_password:
+            password_value = embedded_password
         requested_camera_type = str(payload.get("camera_type") or payload.get("type") or "rtsp").upper()
         camera_type = {
             "RTSP": "RTSP",
@@ -1135,12 +1173,16 @@ class PrismaRepository(PrismaBillingMixin):
             value = payload.get(key)
             if isinstance(value, dict):
                 options.update(value)
+        if str(password_value or "").strip():
+            stored_password = encrypt_camera_secret(str(password_value).strip())
+        else:
+            stored_password = encrypt_camera_secret(str(getattr(current, "passwordSecret", "") or "").strip()) or None
         data = {
             "name": str(payload.get("name") or camera_id).strip(),
             "type": camera_type,
             "connectionUrl": connection_url or None,
-            "username": str(payload.get("username") or "").strip() or None,
-            "passwordSecret": str(payload.get("password_secret") or payload.get("password") or "").strip() or None,
+            "username": username or None,
+            "passwordSecret": stored_password,
             # Prisma Python requires fields.Json for JSON input. Passing a raw
             # dict can make the checked create branch fail and obscure the real
             # error as a missing organizationId in the unchecked branch.
