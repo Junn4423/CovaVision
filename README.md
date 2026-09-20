@@ -182,9 +182,15 @@ Business logic điểm danh chỉ ghi nhận khi có ảnh nhận diện khuôn 
 ### Desktop App (Electron Builder)
 ```bash
 cd apps/desktop
+# Install PyInstaller and vision dependencies before creating a self-contained release.
+python -m pip install -e ".[dev,vision,packaging]"
+# Point this at a directory containing models/buffalo_s.
+COVAVISION_MODEL_DIR=/path/to/insightface_models \
 npm run build:electron
 # Tạo bộ cài .dmg / .app cho macOS hoặc .exe cho Windows trong thư mục apps/desktop/release/
 ```
+
+The self-contained desktop release starts the bundled Python backend on `127.0.0.1:8000` and includes the Prisma schema plus InsightFace model. Use `npm run build:electron:no-backend` only when an external backend is intentionally configured.
 
 ### Mobile App (Android APK)
 ```bash

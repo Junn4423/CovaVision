@@ -26,6 +26,10 @@ node_modules/
 dist/
 build/
 release/
+apps/desktop/backend-runtime/
+apps/desktop/runtime-assets/
+apps/desktop/.pyinstaller-dist/
+apps/desktop/.pyinstaller-build/
 .expo/
 .gradle/
 coverage/

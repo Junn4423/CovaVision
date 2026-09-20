@@ -12,9 +12,11 @@
     "build:react": "vite build",
     "build:react:dev": "vite build --mode development",
     "build:react:prod": "vite build --mode production",
-    "pack:electron": "electron-builder",
+    "prepare:backend-runtime": "node scripts/prepare-backend-runtime.cjs",
+    "pack:electron": "npm run prepare:backend-runtime && electron-builder",
     "build:electron": "npm run build:react && npm run pack:electron",
-    "build:electron:no-backend": "npm run build:react && npm run pack:electron",
+    "pack:electron:no-backend": "electron-builder --config electron-builder.no-backend.yml",
+    "build:electron:no-backend": "npm run build:react && npm run pack:electron:no-backend",
     "build": "npm run build:electron",
     "preview": "vite preview"
   },
@@ -50,6 +52,20 @@
     "files": [
       "dist/**/*",
       "electron/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "backend-runtime",
+        "to": "backend-runtime"
+      },
+      {
+        "from": "runtime-assets/insightface_models",
+        "to": "insightface_models"
+      },
+      {
+        "from": "runtime-assets/prisma",
+        "to": "prisma"
+      }
     ],
     "asarUnpack": [
       "node_modules/@ffmpeg-installer/**/*"

@@ -1,10 +1,39 @@
 const { app, BrowserWindow, session } = require('electron');
+const { spawn } = require('node:child_process');
 const path = require('path');
 const { resolveBackendRuntimeTarget } = require('./runtimeConfig');
 
 let mainWindow = null;
 const isDev = !app.isPackaged;
 const devServerUrl = process.env.COVAVISION_DEV_URL || 'http://localhost:5173';
+let backendProcess = null;
+
+function startPackagedBackend(runtimeTarget) {
+  if (!runtimeTarget.usesLocalBackend || !runtimeTarget.backendExecutable) return;
+  const dataDir = path.join(app.getPath('userData'), 'data');
+  backendProcess = spawn(runtimeTarget.backendExecutable, [], {
+    cwd: path.dirname(runtimeTarget.backendExecutable),
+    env: {
+      ...process.env,
+      API_HOST: '127.0.0.1',
+      API_PORT: '8000',
+      COVAVISION_DATA_DIR: dataDir,
+      INSIGHTFACE_HOME: runtimeTarget.insightfaceHome,
+      PRISMA_SCHEMA_PATH: runtimeTarget.prismaSchema,
+    },
+    stdio: 'inherit',
+    windowsHide: true,
+  });
+  backendProcess.on('error', error => {
+    console.error(`[Backend] Không thể khởi động runtime: ${error.message}`);
+  });
+}
+
+function stopPackagedBackend() {
+  if (!backendProcess || backendProcess.killed) return;
+  backendProcess.kill();
+  backendProcess = null;
+}
 
 function createWindow(runtimeTarget) {
   mainWindow = new BrowserWindow({
@@ -51,11 +80,25 @@ app.whenReady().then(() => {
     return allowedPermissions.has(permission);
   });
 
-  createWindow(resolveBackendRuntimeTarget());
+  const runtimeTarget = resolveBackendRuntimeTarget({
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    platform: process.platform,
+  });
+  startPackagedBackend(runtimeTarget);
+  createWindow(runtimeTarget);
 });
 
 app.on('window-all-closed', () => app.quit());
+app.on('will-quit', stopPackagedBackend);
 
 app.on('activate', () => {
-  if (!mainWindow) createWindow(resolveBackendRuntimeTarget());
+  if (!mainWindow) {
+    const runtimeTarget = resolveBackendRuntimeTarget({
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      platform: process.platform,
+    });
+    createWindow(runtimeTarget);
+  }
 });

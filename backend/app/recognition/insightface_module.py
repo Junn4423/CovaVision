@@ -69,6 +69,7 @@ if getattr(sys, 'frozen', False):
     
     data_dir = resolve_data_dir()
     candidates = [
+        os.environ.get('INSIGHTFACE_HOME'),
         os.path.join(PROJECT_ROOT, 'insightface_models'),
         os.path.join(PROJECT_ROOT, '_internal', 'insightface_models'),
         os.path.join(data_dir, 'insightface_models'),
