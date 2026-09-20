@@ -26,7 +26,6 @@ import {speakAttendanceOutcome} from '../../services/attendanceTts';
 import {colors} from '../../theme';
 import {spacing, border} from '../../designSystem';
 import {Icon} from '../Icon';
-import {api} from '../../services/api';
 import {RtspStreamPlayer, RtspStreamPlayerRef} from './RtspStreamPlayer';
 
 type AttendanceMode = 'auto_record';
@@ -650,7 +649,7 @@ export function FaceAttendancePanel({
         }
         try {
           imageBase64 = await rtspPlayerRef.current.takeSnapshot();
-        } catch (snapErr) {
+        } catch {
           setPrecheck(current => ({
             ...current,
             detected: false,

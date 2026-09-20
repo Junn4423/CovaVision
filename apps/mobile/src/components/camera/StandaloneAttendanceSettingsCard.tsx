@@ -48,6 +48,21 @@ export function StandaloneAttendanceSettingsCard({
     [cameras, cameraId],
   );
 
+  const verifyCamera = useCallback(async (targetId = cameraId, showMessage = true) => {
+    if (!targetId) {
+      setHealth(null);
+      return;
+    }
+    setChecking(true);
+    try {
+      const result = await checkCameraConnectivity(targetId);
+      setHealth(result);
+      if (showMessage) setMessage(result.isOnline ? 'Backend đang nhận camera.' : (result.errorMessage || 'Camera chưa chạy.'));
+    } finally {
+      setChecking(false);
+    }
+  }, [cameraId]);
+
   const reload = useCallback(async () => {
     setLoading(true);
     try {
@@ -74,24 +89,9 @@ export function StandaloneAttendanceSettingsCard({
     } finally {
       setLoading(false);
     }
-  }, [availableCameras, currentCamera, onConfigChanged]);
+  }, [availableCameras, currentCamera, onConfigChanged, verifyCamera]);
 
   useEffect(() => { reload().catch(() => {}); }, [reload]);
-
-  async function verifyCamera(targetId = cameraId, showMessage = true) {
-    if (!targetId) {
-      setHealth(null);
-      return;
-    }
-    setChecking(true);
-    try {
-      const result = await checkCameraConnectivity(targetId);
-      setHealth(result);
-      if (showMessage) setMessage(result.isOnline ? 'Backend đang nhận camera.' : (result.errorMessage || 'Camera chưa chạy.'));
-    } finally {
-      setChecking(false);
-    }
-  }
 
   async function save(partial: Partial<StandaloneAttendanceConfig>) {
     setSaving(true);
