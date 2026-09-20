@@ -6,7 +6,9 @@ import base64
 import binascii
 import asyncio
 import logging
+import math
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
@@ -49,6 +51,11 @@ class RecognitionService:
         )
         self._recognizer: Any | None = None
         self._recognizer_lock = threading.Lock()
+        # InsightFace/ONNX sessions are not safe to execute concurrently from
+        # arbitrary request threads. The async API can still serve other work
+        # while one inference runs in a worker thread.
+        self._inference_lock = threading.Lock()
+        self._face_candidate_cache: dict[str, tuple[float, list[FaceCandidate]]] = {}
         self._attendance_lock: asyncio.Lock | None = None
 
     def _get_recognizer(self) -> Any:
@@ -97,36 +104,36 @@ class RecognitionService:
         decoder = getattr(recognizer, "_decode_image_bytes", None)
         if decoder is None:
             raise RecognitionUnavailable("Recognition engine thiếu bộ giải mã ảnh")
-        frame = decoder(image_bytes)
+        try:
+            frame = await asyncio.to_thread(decoder, image_bytes)
+        except Exception as exc:
+            logger.warning("Could not decode recognition image: %s", exc)
+            raise ValueError("Không thể đọc ảnh chấm công") from exc
         if frame is None:
             raise ValueError("Không thể đọc ảnh chấm công")
 
-        raw_faces = recognizer.engine.detect_and_encode(frame)
-        candidates = []
-        for item in await self.repository.list_face_candidates(organization_id):
-            embedding = item.get("embedding")
-            if embedding is None:
-                embedding = item.get("face_encoding")
-            if embedding is None:
-                continue
-            try:
-                candidates.append(
-                    FaceCandidate(
-                        employee_id=str(item.get("employee_id") or item.get("id") or ""),
-                        display_name=str(item.get("name") or item.get("employee_id") or "Unknown"),
-                        embedding=self._as_list(embedding),
-                    )
-                )
-            except (TypeError, ValueError):
-                continue
+        raw_faces, recognition_degraded = await self._detect_raw_faces(recognizer, frame)
+        if recognition_degraded:
+            return self._empty_detection_result(frame, anti_spoof_enabled=bool(anti_spoof_enabled), degraded=True)
+
+        candidates = await self._get_face_candidates(organization_id)
 
         # Recognition policy belongs to the backend. Keeping a client-provided
         # threshold here made the live preview and final write disagree and
         # allowed a browser to lower the acceptance bar.
         threshold = max(0.0, min(1.0, float(settings.face_match_threshold)))
         detections = []
-        for raw_face in list(raw_faces or [])[: max(1, min(int(max_faces), 10))]:
-            bbox = [int(float(value)) for value in list(raw_face.get("bbox", []))[:4]]
+        try:
+            max_face_limit = max(1, min(int(max_faces), 10))
+        except (TypeError, ValueError):
+            max_face_limit = 3
+        frame_height, frame_width = self._frame_dimensions(frame)
+        for raw_face in list(raw_faces or [])[:max_face_limit]:
+            if not isinstance(raw_face, dict):
+                continue
+            bbox = self._normalize_bbox(raw_face.get("bbox"), frame_width, frame_height)
+            if bbox is None:
+                continue
             is_real_face = True
             liveness_score = 1.0
             if anti_spoof_enabled:
@@ -142,7 +149,7 @@ class RecognitionService:
             similarity = float(match.similarity) if match else 0.0
             detection = {
                 "bbox": bbox,
-                "det_score": float(raw_face.get("det_score", 1.0)),
+                "det_score": self._safe_score(raw_face.get("det_score", 1.0)),
                 "matched": match is not None,
                 "similarity": similarity,
                 "similarity_percent": round(similarity * 100, 2),
@@ -167,7 +174,6 @@ class RecognitionService:
                 "name": matched_detection.get("name", ""),
             }
 
-        height, width = frame.shape[:2]
         return {
             "success": True,
             "detected": bool(detections),
@@ -181,8 +187,107 @@ class RecognitionService:
             "similarity_percent": matched_detection["similarity_percent"] if matched_detection else 0.0,
             "anti_spoof_enabled": bool(anti_spoof_enabled),
             "spoof_detected": any(item.get("spoofed") for item in detections),
+            "frame_width": frame_width,
+            "frame_height": frame_height,
+            "recognition_degraded": False,
+        }
+
+    async def _get_face_candidates(self, organization_id: str | None) -> list[FaceCandidate]:
+        cache_key = str(organization_id or "__default__")
+        now = time.monotonic()
+        cache_seconds = max(0.0, float(settings.face_candidate_cache_seconds))
+        cached = self._face_candidate_cache.get(cache_key)
+        if cached and cache_seconds > 0 and now - cached[0] < cache_seconds:
+            return cached[1]
+
+        candidates: list[FaceCandidate] = []
+        for item in await self.repository.list_face_candidates(organization_id):
+            embedding = item.get("embedding")
+            if embedding is None:
+                embedding = item.get("face_encoding")
+            if embedding is None:
+                continue
+            try:
+                candidates.append(
+                    FaceCandidate(
+                        employee_id=str(item.get("employee_id") or item.get("id") or ""),
+                        display_name=str(item.get("name") or item.get("employee_id") or "Unknown"),
+                        embedding=self._as_list(embedding),
+                    )
+                )
+            except (TypeError, ValueError):
+                continue
+        self._face_candidate_cache[cache_key] = (now, candidates)
+        return candidates
+
+    async def _detect_raw_faces(self, recognizer: Any, frame: Any) -> tuple[list[Any], bool]:
+        def infer() -> list[Any]:
+            with self._inference_lock:
+                return list(recognizer.engine.detect_and_encode(frame) or [])
+
+        try:
+            return await asyncio.to_thread(infer), False
+        except Exception as exc:
+            logger.exception("Face inference failed; returning a safe no-face response: %s", exc)
+            return [], True
+
+    @staticmethod
+    def _frame_dimensions(frame: Any) -> tuple[int, int]:
+        try:
+            height = int(frame.shape[0])
+            width = int(frame.shape[1])
+        except (AttributeError, IndexError, TypeError, ValueError):
+            return 0, 0
+        return max(0, height), max(0, width)
+
+    @classmethod
+    def _normalize_bbox(cls, value: Any, frame_width: int, frame_height: int) -> list[int] | None:
+        try:
+            values = [float(item) for item in list(value)[:4]]
+        except (TypeError, ValueError):
+            return None
+        if len(values) < 4 or not all(math.isfinite(item) for item in values):
+            return None
+        x1, y1, x2, y2 = values
+        if x2 <= x1 or y2 <= y1:
+            return None
+        if frame_width > 0:
+            x1 = max(0.0, min(float(frame_width - 1), x1))
+            x2 = max(0.0, min(float(frame_width), x2))
+        if frame_height > 0:
+            y1 = max(0.0, min(float(frame_height - 1), y1))
+            y2 = max(0.0, min(float(frame_height), y2))
+        if x2 <= x1 or y2 <= y1:
+            return None
+        return [int(x1), int(y1), int(x2), int(y2)]
+
+    @staticmethod
+    def _safe_score(value: Any) -> float:
+        try:
+            score = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        return score if math.isfinite(score) else 0.0
+
+    @staticmethod
+    def _empty_detection_result(frame: Any, *, anti_spoof_enabled: bool, degraded: bool) -> dict[str, Any]:
+        height, width = RecognitionService._frame_dimensions(frame)
+        return {
+            "success": True,
+            "detected": False,
+            "detected_count": 0,
+            "face_count": 0,
+            "matched": False,
+            "detections": [],
+            "detected_user": None,
+            "detection_bbox": None,
+            "similarity": 0.0,
+            "similarity_percent": 0.0,
+            "anti_spoof_enabled": anti_spoof_enabled,
+            "spoof_detected": False,
             "frame_width": width,
             "frame_height": height,
+            "recognition_degraded": degraded,
         }
 
     async def recognize(

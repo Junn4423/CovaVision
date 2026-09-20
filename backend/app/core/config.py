@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     face_detection_threshold: float = 0.35
     face_detection_width: int = 640
     face_detection_height: int = 640
+    face_candidate_cache_seconds: float = 2.0
     # Prevent a continuous camera stream from creating duplicate attendance
     # records for the same employee during this interval.
     attendance_cooldown_seconds: int = 60

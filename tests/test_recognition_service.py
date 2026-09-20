@@ -25,6 +25,46 @@ class FakeRecognizer:
         return FakeFrame()
 
 
+class BrokenEngine:
+    def detect_and_encode(self, _frame):
+        raise RuntimeError("simulated inference failure")
+
+
+class BrokenRecognizer:
+    engine = BrokenEngine()
+
+    @staticmethod
+    def _decode_image_bytes(_image_bytes):
+        return FakeFrame()
+
+
+class NoisyEngine:
+    def detect_and_encode(self, _frame):
+        return [
+            {"bbox": [1, 2], "embedding": [1.0, 0.0], "det_score": 0.1},
+            {"bbox": [100, 80, 220, 240], "embedding": [1.0, 0.0], "det_score": 0.98},
+            {"bbox": [500, 400, 100, 200], "embedding": [1.0, 0.0], "det_score": 0.2},
+        ]
+
+
+class NoisyRecognizer:
+    engine = NoisyEngine()
+
+    @staticmethod
+    def _decode_image_bytes(_image_bytes):
+        return FakeFrame()
+
+
+class CountingRepository(InMemoryRepository):
+    def __init__(self) -> None:
+        super().__init__()
+        self.candidate_calls = 0
+
+    async def list_face_candidates(self, organization_id=None):
+        self.candidate_calls += 1
+        return await super().list_face_candidates(organization_id)
+
+
 @pytest.mark.asyncio
 async def test_detect_matches_registered_employee_without_returning_embedding() -> None:
     repository = InMemoryRepository()
@@ -42,6 +82,50 @@ async def test_detect_matches_registered_employee_without_returning_embedding() 
     assert result["detected_user"]["employee_id"] == "EMP-001"
     assert result["detections"][0]["similarity_percent"] == 100.0
     assert "embedding" not in result["detections"][0]
+
+
+@pytest.mark.asyncio
+async def test_engine_failure_returns_safe_no_face_response_instead_of_crashing() -> None:
+    service = RecognitionService(InMemoryRepository(), recognizer_factory=BrokenRecognizer)
+
+    result = await service.detect(b"fake-image")
+
+    assert result["success"] is True
+    assert result["detected"] is False
+    assert result["detections"] == []
+    assert result["recognition_degraded"] is True
+
+
+@pytest.mark.asyncio
+async def test_malformed_engine_boxes_are_skipped_before_matching() -> None:
+    repository = InMemoryRepository()
+    await repository.save_employee({
+        "employee_id": "EMP-001",
+        "name": "Ngá»c Chung",
+        "embedding": [1.0, 0.0],
+    })
+    service = RecognitionService(repository, recognizer_factory=NoisyRecognizer)
+
+    result = await service.detect(b"fake-image")
+
+    assert result["detected_count"] == 1
+    assert result["detections"][0]["bbox"] == [100, 80, 220, 240]
+
+
+@pytest.mark.asyncio
+async def test_face_candidates_are_cached_briefly_to_reduce_database_work() -> None:
+    repository = CountingRepository()
+    await repository.save_employee({
+        "employee_id": "EMP-001",
+        "name": "Ngá»c Chung",
+        "embedding": [1.0, 0.0],
+    })
+    service = RecognitionService(repository, recognizer_factory=FakeRecognizer)
+
+    await service.detect(b"fake-image")
+    await service.detect(b"fake-image")
+
+    assert repository.candidate_calls == 1
 
 
 @pytest.mark.asyncio
