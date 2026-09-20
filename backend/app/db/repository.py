@@ -367,7 +367,7 @@ class InMemoryRepository:
                 "embedding": item.get("embedding") if item.get("embedding") is not None else item.get("face_encoding"),
             }
             for item in self.employees.values()
-            if item.get("status", "ACTIVE") != "INACTIVE"
+            if item.get("status", "ACTIVE") == "ACTIVE"
             and (item.get("embedding") is not None or item.get("face_encoding") is not None)
         ]
 
@@ -765,7 +765,12 @@ class PrismaRepository(PrismaBillingMixin):
         await self._ensure_connected()
         face_where: dict[str, Any] = {"isActive": True}
         if organization_id:
-            face_where["employee"] = {"organizationId": organization_id}
+            face_where["employee"] = {
+                "organizationId": organization_id,
+                "status": "ACTIVE",
+            }
+        else:
+            face_where["employee"] = {"status": "ACTIVE"}
         faces = await self.client.employeeface.find_many(
             where=face_where,
             include={
