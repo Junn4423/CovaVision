@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import json
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -13,7 +14,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user, get_repository
-from app.billing.payment_providers import PaymentProviderError, build_payment_provider
+from app.billing.payment_providers import (
+    PaymentProviderError,
+    build_momo_callback_signature,
+    build_payment_provider,
+    build_zalopay_callback_mac,
+)
 from app.billing.plans import get_plan, list_public_plans
 from app.core.config import settings
 from app.db.repository import Repository
@@ -34,6 +40,29 @@ class SePayWebhook(BaseModel):
     transferAmount: int | float | str
     transactionDate: str | None = None
     accountNumber: str | None = None
+
+
+class MomoWebhook(BaseModel):
+    partnerCode: str | None = None
+    orderId: str
+    requestId: str | None = None
+    amount: int | float | str
+    orderInfo: str | None = None
+    orderType: str | None = None
+    transId: str | int | None = None
+    resultCode: int | str
+    message: str | None = None
+    payType: str | None = None
+    responseTime: int | str | None = None
+    extraData: str | None = None
+    accessKey: str | None = None
+    signature: str
+
+
+class ZaloPayWebhook(BaseModel):
+    data: str
+    mac: str
+    type: int | str = 1
 
 
 def _organization_id(user: dict[str, Any]) -> str:
@@ -76,6 +105,36 @@ def _payment_public(payment: dict[str, Any]) -> dict[str, Any]:
     )
     public.pop("provider_transaction_id", None)
     return public
+
+
+async def _complete_callback_payment(
+    repository: Repository,
+    *,
+    order_code: str,
+    provider_transaction_id: str,
+    amount_vnd: int,
+    transfer_content: str,
+) -> None:
+    payment = await repository.get_payment_by_order(order_code)
+    if payment is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy mã đơn")
+    if payment.get("status") == "PAID":
+        return
+    if payment.get("expires_at"):
+        expires_at = _parse_datetime(str(payment["expires_at"]))
+        if expires_at < datetime.now(timezone.utc):
+            raise HTTPException(status_code=422, detail="Đơn thanh toán đã hết hạn")
+    try:
+        await repository.complete_payment(
+            order_code,
+            provider_transaction_id,
+            amount_vnd,
+            transfer_content[:500],
+            datetime.now(timezone.utc),
+        )
+    except (KeyError, ValueError) as exc:
+        status_code = 404 if isinstance(exc, KeyError) else 422
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 @router.get("/plans")
@@ -224,4 +283,61 @@ async def sepay_webhook(
         raise HTTPException(status_code=404, detail="Không tìm thấy mã đơn") from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"success": True}
+
+
+@router.post("/webhooks/momo", include_in_schema=False)
+async def momo_webhook(
+    payload: MomoWebhook,
+    repository: Repository = Depends(get_repository),
+) -> dict[str, bool]:
+    secret = settings.momo_secret_key.strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="MoMo webhook chưa được cấu hình")
+    values = payload.model_dump(exclude={"signature"})
+    expected = build_momo_callback_signature(values, secret)
+    if not hmac.compare_digest(str(payload.signature or ""), expected):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="MoMo webhook signature invalid")
+    try:
+        result_code = int(payload.resultCode)
+        amount = int(float(payload.amount))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="MoMo webhook không hợp lệ") from exc
+    if result_code != 0:
+        return {"success": True}
+    await _complete_callback_payment(
+        repository,
+        order_code=payload.orderId.strip().upper(),
+        provider_transaction_id=str(payload.transId or payload.requestId or payload.orderId),
+        amount_vnd=amount,
+        transfer_content=payload.message or payload.orderInfo or "MoMo payment",
+    )
+    return {"success": True}
+
+
+@router.post("/webhooks/zalopay", include_in_schema=False)
+async def zalopay_webhook(
+    payload: ZaloPayWebhook,
+    repository: Repository = Depends(get_repository),
+) -> dict[str, bool]:
+    secret = settings.zalopay_key2.strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="ZaloPay webhook chưa được cấu hình")
+    expected = build_zalopay_callback_mac(secret, payload.data)
+    if not hmac.compare_digest(str(payload.mac or ""), expected):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="ZaloPay callback MAC invalid")
+    try:
+        data = json.loads(payload.data)
+        app_trans_id = str(data.get("apptransid") or "")
+        order_code = app_trans_id.split("_", 1)[1].strip().upper()
+        amount = int(float(data.get("amount")))
+    except (IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=422, detail="ZaloPay callback không hợp lệ") from exc
+    await _complete_callback_payment(
+        repository,
+        order_code=order_code,
+        provider_transaction_id=str(data.get("zptransid") or app_trans_id),
+        amount_vnd=amount,
+        transfer_content=f"ZaloPay {app_trans_id}",
+    )
     return {"success": True}

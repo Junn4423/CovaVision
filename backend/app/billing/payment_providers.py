@@ -62,7 +62,27 @@ def build_momo_signature(values: dict[str, Any], secret_key: str) -> str:
         "requestId",
         "requestType",
     )
-    raw = "&".join(f"{field}={values.get(field, '')}" for field in fields)
+    raw = "&".join(f"{field}={values.get(field) or ''}" for field in fields)
+    return _hmac_sha256(secret_key, raw)
+
+
+def build_momo_callback_signature(values: dict[str, Any], secret_key: str) -> str:
+    fields = (
+        "accessKey",
+        "amount",
+        "extraData",
+        "message",
+        "orderId",
+        "orderInfo",
+        "orderType",
+        "partnerCode",
+        "payType",
+        "requestId",
+        "responseTime",
+        "resultCode",
+        "transId",
+    )
+    raw = "&".join(f"{field}={values.get(field) or ''}" for field in fields)
     return _hmac_sha256(secret_key, raw)
 
 
@@ -82,6 +102,10 @@ def build_zalopay_mac(
         for value in (app_id, app_trans_id, app_user, amount, app_time, embed_data, item)
     )
     return _hmac_sha256(key1, raw)
+
+
+def build_zalopay_callback_mac(key2: str, data: str) -> str:
+    return _hmac_sha256(key2, data)
 
 
 class PaymentProvider:

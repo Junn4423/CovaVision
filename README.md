@@ -184,7 +184,7 @@ ZALOPAY_REDIRECT_URL=https://your-domain.example/payment/zalopay/return
 ZALOPAY_CALLBACK_URL=https://your-domain.example/api/v1/billing/webhooks/zalopay
 ```
 
-Webhook production phải là HTTPS public URL trỏ tới `/api/v1/billing/webhooks/sepay`. Backend chỉ kích hoạt khi đúng order, đúng số tiền, chưa hết hạn và chưa xử lý trước đó. Xem thêm [tài liệu webhook SePay](https://developer.sepay.vn/vi/sepay-webhooks/tich-hop-webhook).
+Webhook production phải là HTTPS public URL trỏ tới `/api/v1/billing/webhooks/sepay`, `/api/v1/billing/webhooks/momo` hoặc `/api/v1/billing/webhooks/zalopay` tương ứng. Backend kiểm tra chữ ký, đúng order, đúng số tiền, chưa hết hạn và idempotency trước khi kích hoạt gói. Xem thêm [tài liệu webhook SePay](https://developer.sepay.vn/vi/sepay-webhooks/tich-hop-webhook), [MoMo](https://developers.momo.vn/v3/docs/payment/api/wallet/onetime)、[ZaloPay](https://docs.zalopay.vn/).
 
 Business logic điểm danh chỉ ghi nhận khi có ảnh nhận diện khuôn mặt. Endpoint `POST /api/v1/attendance` dạng thủ công bị từ chối để không thể giả mạo record bằng `employee_id` từ client.
 
