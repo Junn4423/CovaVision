@@ -30,6 +30,8 @@ class Repository(Protocol):
 
     async def revoke_access_session(self, token: str) -> None: ...
 
+    async def revoke_access_sessions_for_user(self, user_id: str) -> None: ...
+
     async def is_access_session_active(self, user_id: str, token: str) -> bool: ...
 
     async def create_audit_log(self, payload: dict[str, Any]) -> dict[str, Any]: ...
@@ -221,6 +223,11 @@ class InMemoryRepository:
         session = self.access_sessions.get(hash_access_token(token))
         if session is not None:
             session["revoked_at"] = _now()
+
+    async def revoke_access_sessions_for_user(self, user_id: str) -> None:
+        for session in self.access_sessions.values():
+            if str(session.get("user_id")) == str(user_id) and session.get("revoked_at") is None:
+                session["revoked_at"] = _now()
 
     async def is_access_session_active(self, user_id: str, token: str) -> bool:
         session = self.access_sessions.get(hash_access_token(token))
@@ -714,6 +721,13 @@ class PrismaRepository(PrismaBillingMixin):
                 where={"id": session.id},
                 data={"revokedAt": _now()},
             )
+
+    async def revoke_access_sessions_for_user(self, user_id: str) -> None:
+        await self._ensure_connected()
+        await self.client.refreshtoken.update_many(
+            where={"userAccountId": str(user_id), "revokedAt": None},
+            data={"revokedAt": _now()},
+        )
 
     async def is_access_session_active(self, user_id: str, token: str) -> bool:
         await self._ensure_connected()

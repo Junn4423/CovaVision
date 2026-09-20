@@ -63,6 +63,15 @@ async def reset_password(
         account = await repository.reset_account_password(account_id, password, organization_id(current_user))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Account not found") from exc
+    await repository.revoke_access_sessions_for_user(str(account.get("id") or account_id))
+    await repository.create_audit_log({
+        "organization_id": organization_id(current_user),
+        "user_account_id": current_user.get("uid"),
+        "action": "account.password_reset",
+        "entity_type": "account",
+        "entity_id": account.get("id") or account_id,
+        "details": {"target_username": account.get("username")},
+    })
     return {"success": True, "account": account}
 
 
