@@ -167,6 +167,13 @@ class Repository(Protocol):
         organization_id: str | None = None,
     ) -> dict[str, Any]: ...
 
+    async def get_employee_shift_metadata(
+        self,
+        employee_id: str,
+        captured_at: datetime,
+        organization_id: str | None = None,
+    ) -> dict[str, Any]: ...
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -203,6 +210,81 @@ def _parse_filter_datetime(val: Any, is_end: bool = False) -> datetime | None:
         return dt
     except (TypeError, ValueError):
         return None
+
+
+_VIETNAM_TZ = timezone(timedelta(hours=7))
+
+
+def _compute_shift_info(
+    captured_at: datetime,
+    today_records: list[dict[str, Any]],
+    org_settings: dict[str, Any],
+) -> dict[str, Any]:
+    dt_vn = (
+        captured_at.astimezone(_VIETNAM_TZ)
+        if captured_at.tzinfo
+        else captured_at.replace(tzinfo=timezone.utc).astimezone(_VIETNAM_TZ)
+    )
+    scan_minutes = dt_vn.hour * 60 + dt_vn.minute
+
+    # Parse shift times from settings
+    shift_start_str = str(org_settings.get("shift_start_time") or "08:00").strip()
+    shift_end_str = str(org_settings.get("shift_end_time") or "17:30").strip()
+    try:
+        sh, sm = map(int, shift_start_str.split(":"))
+        start_minutes = sh * 60 + sm
+    except Exception:
+        start_minutes = 8 * 60  # 08:00
+    try:
+        eh, em = map(int, shift_end_str.split(":"))
+        end_minutes = eh * 60 + em
+    except Exception:
+        end_minutes = 17 * 60 + 30  # 17:30
+
+    try:
+        late_tolerance = int(org_settings.get("late_tolerance_minutes") or 15)
+    except Exception:
+        late_tolerance = 15
+
+    # If employee has no accepted records today, this is CHECK_IN
+    if not today_records:
+        attendance_type = "CHECK_IN"
+        allowed_start = start_minutes + late_tolerance
+        if scan_minutes > allowed_start:
+            is_late = True
+            late_minutes = max(0, scan_minutes - start_minutes)
+            shift_status = "late"
+        else:
+            is_late = False
+            late_minutes = 0
+            shift_status = "on_time"
+        return {
+            "attendance_type": attendance_type,
+            "is_late": is_late,
+            "late_minutes": late_minutes,
+            "is_early_departure": False,
+            "early_minutes": 0,
+            "shift_status": shift_status,
+        }
+    else:
+        # Already checked in today -> CHECK_OUT
+        attendance_type = "CHECK_OUT"
+        if scan_minutes < end_minutes:
+            is_early = True
+            early_minutes = max(0, end_minutes - scan_minutes)
+            shift_status = "early_departure"
+        else:
+            is_early = False
+            early_minutes = 0
+            shift_status = "on_time"
+        return {
+            "attendance_type": attendance_type,
+            "is_late": False,
+            "late_minutes": 0,
+            "is_early_departure": is_early,
+            "early_minutes": early_minutes,
+            "shift_status": shift_status,
+        }
 
 
 class InMemoryRepository:
@@ -709,7 +791,7 @@ class InMemoryRepository:
             "created_at": _now().isoformat(),
             **payload,
             "organization_id": str(organization_id or payload.get("organization_id") or self.organization_id),
-            "attendance_type": "auto",
+            "attendance_type": str(payload.get("attendance_type") or "auto").lower(),
         }
         self.attendance.append(record)
         return record
@@ -847,6 +929,39 @@ class InMemoryRepository:
         )
         values.update(payload)
         return dict(values)
+
+    async def get_employee_shift_metadata(
+        self,
+        employee_id: str,
+        captured_at: datetime,
+        organization_id: str | None = None,
+    ) -> dict[str, Any]:
+        org_id = str(organization_id or self.organization_id)
+        org_settings = self.settings_by_organization.get(org_id, {})
+        dt_vn = (
+            captured_at.astimezone(_VIETNAM_TZ)
+            if captured_at.tzinfo
+            else captured_at.replace(tzinfo=timezone.utc).astimezone(_VIETNAM_TZ)
+        )
+        today_date = dt_vn.date()
+        today_records = []
+        for r in self.attendance:
+            emp_id = str(r.get("employee_id") or "")
+            if emp_id != str(employee_id):
+                continue
+            r_cap = r.get("captured_at")
+            if not r_cap:
+                continue
+            try:
+                r_dt = datetime.fromisoformat(str(r_cap).replace("Z", "+00:00"))
+                if r_dt.tzinfo is None:
+                    r_dt = r_dt.replace(tzinfo=timezone.utc)
+                r_vn = r_dt.astimezone(_VIETNAM_TZ)
+                if r_vn.date() == today_date:
+                    today_records.append(r)
+            except Exception:
+                pass
+        return _compute_shift_info(captured_at, today_records, org_settings)
 
 
 class PrismaRepository(PrismaBillingMixin):
@@ -1401,12 +1516,19 @@ class PrismaRepository(PrismaBillingMixin):
         camera = await self.client.camera.find_unique(where={"id": camera_id}) if camera_id else None
         if camera is not None and getattr(camera, "organizationId", organization.id) != organization.id:
             camera = None
-        attendance_type = "AUTO"
+        raw_type = str(payload.get("attendance_type") or "AUTO").upper()
+        attendance_type = raw_type if raw_type in {"CHECK_IN", "CHECK_OUT", "AUTO"} else "AUTO"
         status = str(payload.get("status") or "ACCEPTED").upper()
         if status not in {"ACCEPTED", "REJECTED", "PENDING"}:
             status = "ACCEPTED"
         captured_at = self._parse_datetime(payload.get("captured_at"))
         location = payload.get("location")
+        meta_dict: dict[str, Any] = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        if location is not None:
+            meta_dict["location"] = location
+        for field in ("is_late", "late_minutes", "is_early_departure", "early_minutes", "shift_status"):
+            if field in payload:
+                meta_dict[field] = payload[field]
         data: dict[str, Any] = {
             # Use scalar foreign keys so Prisma selects the unchecked input
             # consistently. The checked input otherwise requires an
@@ -1419,7 +1541,7 @@ class PrismaRepository(PrismaBillingMixin):
             "confidence": self._decimal_or_none(payload.get("confidence")),
             # Prisma Client Python requires an explicit Json value even when
             # the application has no GPS/location payload.
-            "metadata": fields.Json({"location": location} if location is not None else {}),
+            "metadata": fields.Json(meta_dict),
         }
         if employee:
             data["employeeId"] = employee.id
@@ -1612,6 +1734,59 @@ class PrismaRepository(PrismaBillingMixin):
                 },
             )
         return await self.get_settings(organization_id=organization.id)
+
+    async def get_employee_shift_metadata(
+        self,
+        employee_id: str,
+        captured_at: datetime,
+        organization_id: str | None = None,
+    ) -> dict[str, Any]:
+        await self._ensure_connected()
+        requested_org_id = str(organization_id or "").strip()
+        organization = (
+            await self.client.organization.find_unique(where={"id": requested_org_id})
+            if requested_org_id
+            else await self._default_organization()
+        )
+        if organization is None:
+            return {
+                "attendance_type": "CHECK_IN",
+                "is_late": False,
+                "late_minutes": 0,
+                "is_early_departure": False,
+                "early_minutes": 0,
+                "shift_status": "on_time",
+            }
+        org_settings = await self.get_settings(organization_id=organization.id)
+        dt_vn = (
+            captured_at.astimezone(_VIETNAM_TZ)
+            if captured_at.tzinfo
+            else captured_at.replace(tzinfo=timezone.utc).astimezone(_VIETNAM_TZ)
+        )
+        today_date = dt_vn.date()
+        start_vn = datetime(today_date.year, today_date.month, today_date.day, 0, 0, 0, tzinfo=_VIETNAM_TZ)
+        end_vn = datetime(today_date.year, today_date.month, today_date.day, 23, 59, 59, 999999, tzinfo=_VIETNAM_TZ)
+        start_utc = start_vn.astimezone(timezone.utc)
+        end_utc = end_vn.astimezone(timezone.utc)
+
+        emp_str = str(employee_id).strip()
+        records = await self.client.attendancerecord.find_many(
+            where={
+                "organizationId": organization.id,
+                "capturedAt": {"gte": start_utc, "lte": end_utc},
+                "status": "ACCEPTED",
+                "OR": [
+                    {"employeeId": emp_str},
+                    {"employee": {"employeeCode": emp_str}},
+                ],
+            },
+            order={"capturedAt": "asc"},
+        )
+        today_records = [
+            {"id": r.id, "type": str(r.type).lower(), "captured_at": r.capturedAt.isoformat()}
+            for r in records
+        ]
+        return _compute_shift_info(captured_at, today_records, org_settings)
 
     async def _organization_for_settings(self, organization_id: str | None) -> Any:
         if organization_id:
@@ -1872,9 +2047,19 @@ class PrismaRepository(PrismaBillingMixin):
 
     @staticmethod
     def _attendance_to_dict(record: Any) -> dict[str, Any]:
-        attendance_type = "auto"
         employee = getattr(record, "employee", None)
         camera = getattr(record, "camera", None)
+        raw_type = getattr(record, "type", "AUTO")
+        attendance_type = str(raw_type).lower() if raw_type else "auto"
+        meta = getattr(record, "metadata", None) or {}
+        if isinstance(meta, str):
+            try:
+                import json
+                meta = json.loads(meta)
+            except Exception:
+                meta = {}
+        elif not isinstance(meta, dict):
+            meta = {}
         return {
             "id": record.id,
             "employee_id": employee.employeeCode if employee else record.employeeId,
@@ -1886,6 +2071,12 @@ class PrismaRepository(PrismaBillingMixin):
             "captured_at": record.capturedAt.isoformat(),
             "confidence": float(record.confidence) if record.confidence is not None else None,
             "client_event_id": getattr(record, "clientEventId", None),
+            "is_late": meta.get("is_late", False),
+            "late_minutes": meta.get("late_minutes", 0),
+            "is_early_departure": meta.get("is_early_departure", False),
+            "early_minutes": meta.get("early_minutes", 0),
+            "shift_status": meta.get("shift_status", "on_time"),
+            "metadata": meta,
         }
 
     @staticmethod

@@ -346,7 +346,7 @@ def test_recognize_endpoint_accepts_json_base64_and_records_attendance() -> None
     assert response.status_code == 200
     assert response.json()["success"] is True
     assert response.json()["record"]["employee_id"] == "EMP-API"
-    assert response.json()["record"]["attendance_type"] == "auto"
+    assert response.json()["record"]["attendance_type"] == "check_in"
 
 
 def test_admin_contracts_cover_accounts_settings_and_report_export() -> None:

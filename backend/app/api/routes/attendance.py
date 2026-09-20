@@ -106,7 +106,10 @@ async def detect_faces(
     current_user: dict[str, Any] = Depends(get_current_user),
     recognition: RecognitionService = Depends(get_recognition_service),
 ) -> dict[str, Any]:
-    payload, image_bytes = await read_image_request(request)
+    try:
+        payload, image_bytes = await read_image_request(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
         return await recognition.detect(
             image_bytes,
@@ -122,10 +125,26 @@ async def detect_faces(
 @router.get("/records")
 async def attendance_records(
     employee_id: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: Optional[int] = 200,
+    offset: Optional[int] = 0,
     current_user: dict[str, Any] = Depends(get_current_user),
     repository: Repository = Depends(get_repository),
 ) -> dict[str, Any]:
-    records = await repository.list_attendance({"employee_id": employee_id}, _organization_id(current_user))
+    filters: dict[str, Any] = {"employee_id": employee_id}
+    if start_date:
+        filters["start_date"] = start_date
+    if end_date:
+        filters["end_date"] = end_date
+    if status:
+        filters["status"] = status
+    if limit is not None:
+        filters["limit"] = limit
+    if offset is not None:
+        filters["offset"] = offset
+    records = await repository.list_attendance(filters, _organization_id(current_user))
     return {"success": True, "records": records, "attendance": records}
 
 
@@ -159,11 +178,15 @@ async def attendance_stats(
     records = await repository.list_attendance({}, _organization_id(current_user))
     today_records = [r for r in records if _is_today(r.get("captured_at"))]
     accepted_records = [r for r in records if str(r.get("status", "")).lower() == "accepted"]
+    today_late = sum(1 for r in today_records if r.get("is_late") or r.get("shift_status") == "late")
+    today_early = sum(1 for r in today_records if r.get("is_early_departure") or r.get("shift_status") == "early_departure")
     return {
         "success": True,
         "total": len(records),
         "today": len(today_records),
         "accepted": len(accepted_records),
+        "late_today": today_late,
+        "early_today": today_early,
     }
 
 

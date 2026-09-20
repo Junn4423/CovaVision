@@ -162,7 +162,7 @@ async def test_recognize_creates_local_attendance_record_for_match() -> None:
     assert result["success"] is True
     assert result["record"]["employee_id"] == "EMP-001"
     assert result["record"]["camera_id"] == "camera-1"
-    assert result["record"]["attendance_type"] == "auto"
+    assert result["record"]["attendance_type"] == "check_in"
     assert len(repository.attendance) == 1
 
 
@@ -185,8 +185,8 @@ async def test_recognize_deduplicates_successful_face_scans() -> None:
 
     assert first["success"] is True
     assert second["success"] is True
-    assert first["record"]["attendance_type"] == "auto"
-    assert second["record"]["attendance_type"] == "auto"
+    assert first["record"]["attendance_type"] == "check_in"
+    assert second["record"]["attendance_type"] == "check_in"
     assert second["duplicate"] is True
     assert second["record"]["id"] == first["record"]["id"]
     assert len(repository.attendance) == 1

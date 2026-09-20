@@ -371,12 +371,16 @@ class RecognitionService:
                             "data:image/jpeg;base64," + base64.b64encode(image_bytes).decode("ascii")
                         )
                     return response
+            shift_meta = await self._compute_shift_metadata(
+                employee_id=str(user["employee_id"]),
+                captured_at=captured_at,
+                organization_id=organization_id,
+            )
+            attendance_type = shift_meta.get("attendance_type", "auto")
             record = await self.repository.create_attendance({
                 "employee_id": user["employee_id"],
                 "camera_id": camera_id,
-                # CHECK_IN/CHECK_OUT are intentionally not used. Every
-                # successful face scan is one independent AUTO record.
-                "attendance_type": "auto",
+                "attendance_type": attendance_type,
                 "status": "accepted",
                 "captured_at": captured_at.isoformat(),
                 "confidence": result["similarity"],
@@ -405,12 +409,33 @@ class RecognitionService:
             "user": user,
             "record": record,
             "attendance": record,
+            **shift_meta,
         }
         if include_preview:
             response["preview_image_base64"] = (
                 "data:image/jpeg;base64," + base64.b64encode(image_bytes).decode("ascii")
             )
         return response
+
+    async def _compute_shift_metadata(
+        self,
+        *,
+        employee_id: str,
+        captured_at: datetime,
+        organization_id: str | None,
+    ) -> dict[str, Any]:
+        try:
+            if hasattr(self.repository, "get_employee_shift_metadata"):
+                meta = await self.repository.get_employee_shift_metadata(
+                    employee_id,
+                    captured_at,
+                    organization_id,
+                )
+                if isinstance(meta, dict):
+                    return meta
+        except Exception:
+            pass
+        return {"attendance_type": "auto"}
 
     async def _store_attendance_snapshot(
         self,

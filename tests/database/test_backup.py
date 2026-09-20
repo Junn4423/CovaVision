@@ -48,7 +48,7 @@ def test_backup_writes_dump_and_keeps_password_in_environment(monkeypatch, tmp_p
 
 
 def test_schema_has_a_tracked_initial_prisma_migration() -> None:
-    root = Path(__file__).parents[1]
+    root = Path(__file__).parents[2]
     migrations = list((root / "prisma" / "migrations").glob("*/migration.sql"))
 
     assert migrations

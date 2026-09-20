@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from app.db.repository import PrismaRepository
 
 
-SCHEMA = Path(__file__).parents[1] / "prisma" / "schema.prisma"
+SCHEMA = Path(__file__).parents[2] / "prisma" / "schema.prisma"
 
 
 def test_prisma_schema_uses_mysql_and_named_business_tables() -> None:
