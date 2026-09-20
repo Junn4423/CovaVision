@@ -77,4 +77,13 @@ async def set_lock(
         account = await repository.set_account_lock(account_id, bool(payload.get("is_locked", False)), organization_id(current_user))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Account not found") from exc
+    is_locked = bool(payload.get("is_locked", False))
+    await repository.create_audit_log({
+        "organization_id": organization_id(current_user),
+        "user_account_id": current_user.get("uid"),
+        "action": "account.locked" if is_locked else "account.unlocked",
+        "entity_type": "account",
+        "entity_id": account.get("id") or account_id,
+        "details": {"target_username": account.get("username"), "is_locked": is_locked},
+    })
     return {"success": True, "account": account}

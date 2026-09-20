@@ -32,6 +32,10 @@ class Repository(Protocol):
 
     async def is_access_session_active(self, user_id: str, token: str) -> bool: ...
 
+    async def create_audit_log(self, payload: dict[str, Any]) -> dict[str, Any]: ...
+
+    async def list_audit_logs(self, organization_id: str, limit: int = 100) -> list[dict[str, Any]]: ...
+
     async def register_account(
         self, email: str, password: str, full_name: str, organization_name: str
     ) -> dict[str, Any]: ...
@@ -169,6 +173,7 @@ class InMemoryRepository:
         self.subscriptions: list[dict[str, Any]] = []
         self.payments: dict[str, dict[str, Any]] = {}
         self.access_sessions: dict[str, dict[str, Any]] = {}
+        self.audit_logs: list[dict[str, Any]] = []
 
     def seed_user(
         self,
@@ -231,6 +236,23 @@ class InMemoryRepository:
             return False
         user = next((item for item in self.users.values() if str(item.get("id")) == str(user_id)), None)
         return bool(user and user.get("is_active", False))
+
+    async def create_audit_log(self, payload: dict[str, Any]) -> dict[str, Any]:
+        record = {
+            "id": str(uuid4()),
+            "created_at": _now().isoformat(),
+            **payload,
+        }
+        self.audit_logs.append(record)
+        return record
+
+    async def list_audit_logs(self, organization_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        normalized_organization_id = str(organization_id).strip()
+        return [
+            dict(item)
+            for item in reversed(self.audit_logs)
+            if str(item.get("organization_id") or "") == normalized_organization_id
+        ][: max(1, min(int(limit), 200))]
 
     async def register_account(self, email: str, password: str, full_name: str, organization_name: str) -> dict[str, Any]:
         normalized = email.strip().lower()
@@ -683,6 +705,39 @@ class PrismaRepository(PrismaBillingMixin):
             return False
         user = await self.client.useraccount.find_unique(where={"id": str(user_id)})
         return bool(user and user.isActive)
+
+    async def create_audit_log(self, payload: dict[str, Any]) -> dict[str, Any]:
+        await self._ensure_connected()
+        from prisma import fields
+
+        organization_id = str(payload.get("organization_id") or payload.get("organizationId") or "").strip()
+        if not organization_id:
+            raise ValueError("organization_id is required")
+        data: dict[str, Any] = {
+            "organizationId": organization_id,
+            "action": str(payload.get("action") or "system.event")[:120],
+            "details": fields.Json(payload.get("details") or {}),
+        }
+        user_id = str(payload.get("user_account_id") or payload.get("userAccountId") or "").strip()
+        entity_type = str(payload.get("entity_type") or payload.get("entityType") or "").strip()
+        entity_id = str(payload.get("entity_id") or payload.get("entityId") or "").strip()
+        if user_id:
+            data["userAccountId"] = user_id
+        if entity_type:
+            data["entityType"] = entity_type[:120]
+        if entity_id:
+            data["entityId"] = entity_id
+        record = await self.client.auditlog.create(data=data)
+        return self._audit_log_to_dict(record)
+
+    async def list_audit_logs(self, organization_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        await self._ensure_connected()
+        records = await self.client.auditlog.find_many(
+            where={"organizationId": str(organization_id)},
+            order={"createdAt": "desc"},
+            take=max(1, min(int(limit), 200)),
+        )
+        return [self._audit_log_to_dict(record) for record in records]
 
     async def list_accounts(self, organization_id: str | None = None) -> list[dict[str, Any]]:
         await self._ensure_connected()
@@ -1482,4 +1537,17 @@ class PrismaRepository(PrismaBillingMixin):
             "status": str(record.status).lower(),
             "captured_at": record.capturedAt.isoformat(),
             "confidence": float(record.confidence) if record.confidence is not None else None,
+        }
+
+    @staticmethod
+    def _audit_log_to_dict(record: Any) -> dict[str, Any]:
+        return {
+            "id": record.id,
+            "organization_id": record.organizationId,
+            "user_account_id": record.userAccountId,
+            "action": record.action,
+            "entity_type": record.entityType,
+            "entity_id": record.entityId,
+            "details": record.details or {},
+            "created_at": record.createdAt.isoformat(),
         }

@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.accounts import router as accounts_router
+from app.api.routes.audit import router as audit_router
 from app.api.routes.attendance import router as attendance_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.billing import router as billing_router
@@ -40,6 +41,7 @@ def create_app(repository=None, camera_manager=None, camera_discovery=None) -> F
     application.include_router(auth_router)
     application.include_router(billing_router)
     application.include_router(accounts_router)
+    application.include_router(audit_router)
     application.include_router(employees_router)
     application.include_router(cameras_router)
     application.include_router(attendance_router)
