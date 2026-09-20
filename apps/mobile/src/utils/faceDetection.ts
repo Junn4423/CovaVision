@@ -1,3 +1,53 @@
+export type FaceRecognitionGate = {
+  pausedUntil: number;
+  noFaceStreak: number;
+};
+
+export function canProbeFaceRecognition(
+  gate: FaceRecognitionGate,
+  localFaceSignal: boolean,
+  now = Date.now(),
+): boolean {
+  return Boolean(localFaceSignal) && now >= Number(gate?.pausedUntil || 0);
+}
+
+export function markFaceRecognitionResult(
+  gate: FaceRecognitionGate,
+  detected: boolean,
+  now = Date.now(),
+): FaceRecognitionGate {
+  if (detected) {
+    return {pausedUntil: 0, noFaceStreak: 0};
+  }
+  const noFaceStreak = Math.min(8, Math.max(0, Number(gate?.noFaceStreak || 0)) + 1);
+  const pauseMs = Math.min(3_000, 700 + noFaceStreak * 250);
+  return {pausedUntil: now + pauseMs, noFaceStreak};
+}
+
+export function smoothBoundingBox(
+  previous: number[] | null | undefined,
+  next: number[] | null | undefined,
+  alpha = 0.75,
+): number[] | null {
+  if (!Array.isArray(next) || next.length < 4) {
+    return Array.isArray(previous) && previous.length >= 4 ? previous.slice(0, 4) : null;
+  }
+  const current = next.slice(0, 4).map(Number);
+  if (current.some(value => !Number.isFinite(value))) {
+    return Array.isArray(previous) && previous.length >= 4 ? previous.slice(0, 4) : null;
+  }
+  if (!Array.isArray(previous) || previous.length < 4) {
+    return current;
+  }
+  const weight = Math.max(0.35, Math.min(1, Number(alpha) || 0.75));
+  return current.map((value, index) => {
+    const oldValue = Number(previous[index]);
+    return Number.isFinite(oldValue)
+      ? oldValue + (value - oldValue) * weight
+      : value;
+  });
+}
+
 /**
  * Normalize the two face-detection response shapes used by the backends.
  * The admin endpoint reports the matched person inside `detections[]`, while

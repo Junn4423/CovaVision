@@ -21,7 +21,12 @@ import {
 import {
   isLikelyFaceFrame,
 } from '../../utils/faceFrameCheck';
-import {normalizeFaceDetectionResponse} from '../../utils/faceDetection';
+import {
+  canProbeFaceRecognition,
+  markFaceRecognitionResult,
+  normalizeFaceDetectionResponse,
+  smoothBoundingBox,
+} from '../../utils/faceDetection';
 import {speakAttendanceOutcome} from '../../services/attendanceTts';
 import {colors} from '../../theme';
 import {spacing, border} from '../../designSystem';
@@ -108,12 +113,12 @@ type FaceAttendancePanelProps = {
   onSubmitSuccess?: (response?: any) => Promise<void> | void;
 };
 
-const PRECHECK_IDLE_INTERVAL_MS = 450;
 const PRECHECK_INTERVAL_MS = 300;
 const PRECHECK_LOCKED_INTERVAL_MS = 400;
 const PRECHECK_LOCK_MIN_PROBE_DELAY_MS = 300;
 const PRECHECK_FIRST_SCAN_DELAY_MS = 150;
 const PRECHECK_READY_STREAK_REQUIRED = 2;
+const PRECHECK_NO_FACE_INTERVAL_MS = 1_000;
 
 const INITIAL_PRECHECK: FacePrecheckState = {
   status: 'idle',
@@ -508,6 +513,8 @@ export function FaceAttendancePanel({
     lockedAt: number;
   } | null>(null);
   const faceAbsentStreakRef = useRef(0);
+  const faceRecognitionGateRef = useRef({pausedUntil: 0, noFaceStreak: 0});
+  const smoothedBboxRef = useRef<number[] | null>(null);
   const readyUserKeyRef = useRef('');
   const readyStreakRef = useRef(0);
   const [cameraPermission, setCameraPermission] = useState(false);
@@ -535,6 +542,8 @@ export function FaceAttendancePanel({
     readyUserKeyRef.current = '';
     readyStreakRef.current = 0;
     faceAbsentStreakRef.current = 0;
+    faceRecognitionGateRef.current = {pausedUntil: 0, noFaceStreak: 0};
+    smoothedBboxRef.current = null;
     autoLocalAttendanceInFlightKeysRef.current.clear();
   }, [isRtspMode, selectedCameraSource, selectedCamera]);
 
@@ -622,6 +631,13 @@ export function FaceAttendancePanel({
       return readyStreakRef.current >= PRECHECK_READY_STREAK_REQUIRED;
     }
 
+    // Do not keep sending frames to the backend while the local no-face
+    // circuit breaker is active. A sparse probe resumes recognition once the
+    // backoff expires, while a real face immediately clears the backoff.
+    if (!canProbeFaceRecognition(faceRecognitionGateRef.current, true)) {
+      return false;
+    }
+
     const activeFaceLock = processedFaceLockRef.current;
     if (activeFaceLock) {
       if (Date.now() - activeFaceLock.lockedAt > 4000) {
@@ -687,10 +703,15 @@ export function FaceAttendancePanel({
 
       // Fast FE entropy precheck (< 0.1ms): filters out blank wall/ceiling without calling server
       if (!isLikelyFaceFrame(imageBase64)) {
+        faceRecognitionGateRef.current = markFaceRecognitionResult(
+          faceRecognitionGateRef.current,
+          false,
+        );
         faceAbsentStreakRef.current += 1;
         readyStreakRef.current = 0;
         readyUserKeyRef.current = '';
         processedFaceLockRef.current = null;
+        smoothedBboxRef.current = null;
         setFaceLocked(false);
         setDetecting(false);
         setPrecheck({
@@ -725,11 +746,16 @@ export function FaceAttendancePanel({
         )
       );
       if (!hasDetections) {
+        faceRecognitionGateRef.current = markFaceRecognitionResult(
+          faceRecognitionGateRef.current,
+          false,
+        );
         faceAbsentStreakRef.current += 1;
         readyStreakRef.current = 0;
         readyUserKeyRef.current = '';
         // Face has left! Instantly clear lock and turn off HUD circle
         processedFaceLockRef.current = null;
+        smoothedBboxRef.current = null;
         setFaceLocked(false);
         setDetecting(false);
         setPrecheck({
@@ -741,7 +767,17 @@ export function FaceAttendancePanel({
       }
 
       // Human face physically detected in frame!
+      faceRecognitionGateRef.current = markFaceRecognitionResult(
+        faceRecognitionGateRef.current,
+        true,
+      );
       faceAbsentStreakRef.current = 0;
+      const trackedBbox = smoothBoundingBox(
+        smoothedBboxRef.current,
+        response?.detection_bbox || response?.bbox,
+        0.8,
+      );
+      smoothedBboxRef.current = trackedBbox;
 
       // Check if a DIFFERENT person has stepped into the frame:
       if (
@@ -772,7 +808,7 @@ export function FaceAttendancePanel({
             detected: true,
             matched: true,
             mismatch: false,
-            bbox: response.bbox || null,
+            bbox: trackedBbox,
             frameWidth: response.frameWidth || 0,
             frameHeight: response.frameHeight || 0,
             faceSizeRatio: response.faceSizeRatio || 0.3,
@@ -805,7 +841,10 @@ export function FaceAttendancePanel({
         readyStreakRef.current = 0;
       }
 
-      const nextPrecheck = buildPrecheckState(response, readyStreakRef.current, isRtspMode);
+      const nextPrecheck = {
+        ...buildPrecheckState(response, readyStreakRef.current, isRtspMode),
+        bbox: trackedBbox,
+      };
       setPrecheck(nextPrecheck);
 
       const readyForAttendance =
@@ -1014,8 +1053,8 @@ export function FaceAttendancePanel({
       || precheck.status === 'ready'
       || (precheck.status === 'hold' && precheck.matched);
     const activeInterval = isRtspMode
-      ? (faceLocked ? 1500 : shouldProbeQuickly ? 500 : 1200)
-      : (faceLocked ? PRECHECK_LOCKED_INTERVAL_MS : shouldProbeQuickly ? PRECHECK_INTERVAL_MS : PRECHECK_IDLE_INTERVAL_MS);
+      ? (faceLocked ? 1500 : shouldProbeQuickly ? 500 : PRECHECK_NO_FACE_INTERVAL_MS)
+      : (faceLocked ? PRECHECK_LOCKED_INTERVAL_MS : shouldProbeQuickly ? PRECHECK_INTERVAL_MS : PRECHECK_NO_FACE_INTERVAL_MS);
     const interval = setInterval(scan, activeInterval);
     return () => {
       cancelled = true;
