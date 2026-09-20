@@ -21,7 +21,11 @@ from uuid import uuid4
 from app.billing.plans import get_plan
 from app.core.security import (
     decrypt_camera_secret,
+    decrypt_face_embedding,
+    decrypt_face_embedding_bytes,
     encrypt_camera_secret,
+    encrypt_face_embedding,
+    encrypt_face_embedding_bytes,
     hash_access_token,
     hash_password,
     normalize_camera_connection_url,
@@ -441,12 +445,23 @@ class InMemoryRepository:
             "organization_id": str(payload.get("organization_id") or self.organization_id),
             "updated_at": _now().isoformat(),
         }
+        for field_name in ("embedding", "face_encoding"):
+            if employee.get(field_name) is not None:
+                employee["embedding"] = encrypt_face_embedding(employee[field_name])
+                if field_name == "face_encoding":
+                    employee.pop("face_encoding", None)
         employee.setdefault("name", employee_id)
         employee.setdefault("registered", False)
         self.employees[employee_id] = employee
         return employee
 
     async def list_face_candidates(self, organization_id: str | None = None) -> list[dict[str, Any]]:
+        def candidate_embedding(item: dict[str, Any]) -> Any:
+            stored = item.get("embedding") if item.get("embedding") is not None else item.get("face_encoding")
+            if isinstance(stored, str):
+                return decrypt_face_embedding(stored)
+            return stored
+
         return [
             {
                 "id": item.get("id") or item.get("employee_id"),
@@ -454,7 +469,7 @@ class InMemoryRepository:
                 "name": item.get("name") or item.get("employee_id") or item.get("id"),
                 "department": item.get("department"),
                 "position": item.get("position"),
-                "embedding": item.get("embedding") if item.get("embedding") is not None else item.get("face_encoding"),
+                "embedding": candidate_embedding(item),
             }
             for item in self.employees.values()
             if not organization_id or str(item.get("organization_id") or "") == str(organization_id)
@@ -466,7 +481,7 @@ class InMemoryRepository:
         employee = self.employees.get(employee_id)
         if employee is None or (organization_id and str(employee.get("organization_id") or "") != str(organization_id)):
             raise KeyError(employee_id)
-        employee["embedding"] = embedding.tolist() if hasattr(embedding, "tolist") else embedding
+        employee["embedding"] = encrypt_face_embedding(embedding)
         employee["registered"] = True
         employee["has_face"] = True
         employee["face_count"] = 1
@@ -1035,6 +1050,9 @@ class PrismaRepository(PrismaBillingMixin):
                 raw_embedding = fields.Base64.fromb64(raw_embedding).decode()
             if not isinstance(raw_embedding, (bytes, bytearray)):
                 continue
+            raw_embedding = decrypt_face_embedding_bytes(bytes(raw_embedding))
+            if raw_embedding is None:
+                continue
             size = int(getattr(face, "embeddingSize", 0) or 0)
             if size <= 0 or len(raw_embedding) < size * 4:
                 continue
@@ -1064,6 +1082,7 @@ class PrismaRepository(PrismaBillingMixin):
         if not values:
             raise ValueError("Face embedding is empty")
         raw_embedding = struct.pack(f"<{len(values)}f", *values)
+        stored_embedding = encrypt_face_embedding_bytes(raw_embedding)
         from prisma import fields
 
         await self.client.employeeface.update_many(
@@ -1074,7 +1093,7 @@ class PrismaRepository(PrismaBillingMixin):
         await self.client.employeeface.create(
             data={
                 "employeeId": employee.id,
-                "embedding": fields.Base64.encode(raw_embedding),
+                "embedding": fields.Base64.encode(stored_embedding),
                 "embeddingModel": "insightface-buffalo_s",
                 "embeddingSize": len(values),
                 "imagePath": str(image_path) if image_path else None,

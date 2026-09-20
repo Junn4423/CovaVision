@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     database_url: str = "mysql://covavision:change-me@127.0.0.1:3306/covavision"
     jwt_secret: str = "change-me-in-development"
     camera_encryption_key: str = ""
+    biometric_encryption_key: str = ""
     access_token_expire_seconds: int = 8 * 60 * 60
     # Electron production loads the renderer from file://, whose CORS origin is `null`.
     cors_origins: str = "http://127.0.0.1:5173,http://localhost:5173,null"

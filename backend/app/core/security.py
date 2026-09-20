@@ -139,6 +139,64 @@ def decrypt_camera_secret(value: str) -> str:
         return ""
 
 
+def _biometric_fernet() -> Fernet:
+    configured_key = str(settings.biometric_encryption_key or "").strip()
+    if configured_key:
+        try:
+            return Fernet(configured_key.encode("ascii"))
+        except (ValueError, TypeError):
+            digest = hashlib.sha256(configured_key.encode("utf-8")).digest()
+    else:
+        digest = hashlib.sha256((settings.jwt_secret + ":biometric").encode("utf-8")).digest()
+    return Fernet(base64.urlsafe_b64encode(digest))
+
+
+def encrypt_face_embedding(value: Any) -> str:
+    """Encrypt a face vector with a version marker for storage migration."""
+
+    if isinstance(value, str) and value.startswith("emb:v1:"):
+        return value
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    values = [float(item) for item in (value or [])]
+    payload = json.dumps(values, separators=(",", ":")).encode("utf-8")
+    return "emb:v1:" + _biometric_fernet().encrypt(payload).decode("ascii")
+
+
+def decrypt_face_embedding(value: Any) -> list[float] | None:
+    """Decrypt a stored face vector; legacy list values remain readable."""
+
+    if isinstance(value, (list, tuple)):
+        return [float(item) for item in value]
+    raw = str(value or "")
+    if not raw.startswith("emb:v1:"):
+        return None
+    try:
+        decoded = _biometric_fernet().decrypt(raw[7:].encode("ascii"))
+        values = json.loads(decoded.decode("utf-8"))
+        return [float(item) for item in values]
+    except (InvalidToken, UnicodeDecodeError, ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def encrypt_face_embedding_bytes(value: bytes) -> bytes:
+    """Encrypt the binary float representation used by the Prisma model."""
+
+    return b"emb:v1:" + _biometric_fernet().encrypt(bytes(value))
+
+
+def decrypt_face_embedding_bytes(value: bytes) -> bytes | None:
+    """Decrypt Prisma embedding bytes while keeping legacy raw floats readable."""
+
+    raw = bytes(value or b"")
+    if not raw.startswith(b"emb:v1:"):
+        return raw
+    try:
+        return _biometric_fernet().decrypt(raw[7:])
+    except (InvalidToken, ValueError):
+        return None
+
+
 def normalize_camera_connection_url(
     value: str,
     username: str = "",
