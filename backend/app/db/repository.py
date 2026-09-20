@@ -85,9 +85,17 @@ class Repository(Protocol):
 
     async def list_attendance(self, filters: dict[str, Any], organization_id: str | None = None) -> list[dict[str, Any]]: ...
 
-    async def get_settings(self, key: str | None = None) -> dict[str, Any]: ...
+    async def get_settings(
+        self,
+        key: str | None = None,
+        organization_id: str | None = None,
+    ) -> dict[str, Any]: ...
 
-    async def save_settings(self, payload: dict[str, Any]) -> dict[str, Any]: ...
+    async def save_settings(
+        self,
+        payload: dict[str, Any],
+        organization_id: str | None = None,
+    ) -> dict[str, Any]: ...
 
 
 def _now() -> datetime:
@@ -136,8 +144,10 @@ class InMemoryRepository:
         self.employees: dict[str, dict[str, Any]] = {}
         self.cameras: dict[str, dict[str, Any]] = {}
         self.attendance: list[dict[str, Any]] = []
-        self.settings: dict[str, Any] = {}
         self.organization_id = organization_id
+        self.settings_by_organization: dict[str, dict[str, Any]] = {organization_id: {}}
+        # Keep the legacy attribute available for tests and demo integrations.
+        self.settings = self.settings_by_organization[organization_id]
         self.organization = {
             "id": organization_id,
             "code": "DEFAULT",
@@ -146,14 +156,23 @@ class InMemoryRepository:
         self.subscriptions: list[dict[str, Any]] = []
         self.payments: dict[str, dict[str, Any]] = {}
 
-    def seed_user(self, username: str, password: str, *, role: str = "STAFF") -> None:
+    def seed_user(
+        self,
+        username: str,
+        password: str,
+        *,
+        role: str = "STAFF",
+        organization_id: str | None = None,
+    ) -> None:
         user_id = str(uuid4())
+        scoped_organization_id = str(organization_id or self.organization_id).strip()
+        self.settings_by_organization.setdefault(scoped_organization_id, {})
         self.users[username] = {
             "id": user_id,
             "username": username,
             "password_hash": hash_password(password),
             "role": role,
-            "organization_id": self.organization_id,
+            "organization_id": scoped_organization_id,
             "is_active": True,
         }
 
@@ -498,14 +517,30 @@ class InMemoryRepository:
             items = [item for item in items if str(item.get("status", "")).upper() == status_norm]
         return items
 
-    async def get_settings(self, key: str | None = None) -> dict[str, Any]:
+    async def get_settings(
+        self,
+        key: str | None = None,
+        organization_id: str | None = None,
+    ) -> dict[str, Any]:
+        values = self.settings_by_organization.setdefault(
+            str(organization_id or self.organization_id),
+            {},
+        )
         if key:
-            return {key: self.settings.get(key)}
-        return dict(self.settings)
+            return {key: values.get(key)}
+        return dict(values)
 
-    async def save_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
-        self.settings.update(payload)
-        return dict(self.settings)
+    async def save_settings(
+        self,
+        payload: dict[str, Any],
+        organization_id: str | None = None,
+    ) -> dict[str, Any]:
+        values = self.settings_by_organization.setdefault(
+            str(organization_id or self.organization_id),
+            {},
+        )
+        values.update(payload)
+        return dict(values)
 
 
 class PrismaRepository(PrismaBillingMixin):
@@ -1027,18 +1062,26 @@ class PrismaRepository(PrismaBillingMixin):
         )
         return [self._attendance_to_dict(record) for record in records]
 
-    async def get_settings(self, key: str | None = None) -> dict[str, Any]:
+    async def get_settings(
+        self,
+        key: str | None = None,
+        organization_id: str | None = None,
+    ) -> dict[str, Any]:
         await self._ensure_connected()
-        organization = await self._default_organization()
+        organization = await self._organization_for_settings(organization_id)
         where: dict[str, Any] = {"organizationId": organization.id}
         if key:
             where["settingKey"] = key
         rows = await self.client.systemsetting.find_many(where=where)
         return {row.settingKey: row.settingValue for row in rows}
 
-    async def save_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
+    async def save_settings(
+        self,
+        payload: dict[str, Any],
+        organization_id: str | None = None,
+    ) -> dict[str, Any]:
         await self._ensure_connected()
-        organization = await self._default_organization()
+        organization = await self._organization_for_settings(organization_id)
         for key, value in payload.items():
             setting_key = str(key).strip()
             if not setting_key:
@@ -1057,7 +1100,17 @@ class PrismaRepository(PrismaBillingMixin):
                     "update": {"settingValue": value},
                 },
             )
-        return await self.get_settings()
+        return await self.get_settings(organization_id=organization.id)
+
+    async def _organization_for_settings(self, organization_id: str | None) -> Any:
+        if organization_id:
+            organization = await self.client.organization.find_unique(
+                where={"id": organization_id},
+            )
+            if organization is None:
+                raise KeyError(organization_id)
+            return organization
+        return await self._default_organization()
 
     async def _default_organization(self) -> Any:
         organization = await self.client.organization.find_first(order={"createdAt": "asc"})
