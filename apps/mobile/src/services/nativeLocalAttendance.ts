@@ -26,3 +26,13 @@ export {
   type MobileLocalDataPage,
   type MobileLocalDataSummary,
 } from './mobileLocalData';
+
+export {
+  clearOfflineAttendanceQueue,
+  enqueueOfflineAttendance,
+  getOfflineAttendanceQueue,
+  syncOfflineAttendanceQueue,
+  type OfflineAttendanceInput,
+  type OfflineAttendanceItem,
+  type OfflineAttendanceSyncResult,
+} from './offlineAttendanceQueue';

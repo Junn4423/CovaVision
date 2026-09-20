@@ -2,6 +2,11 @@ import React, {useCallback, useEffect, useState} from 'react';
 import {ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {FaceAttendancePanel} from '../../components/attendance/FaceAttendancePanel';
 import {api} from '../../services/api';
+import {
+  enqueueOfflineAttendance,
+  recordMobileLocalFaceAttendance,
+  syncOfflineAttendanceQueue,
+} from '../../services/nativeLocalAttendance';
 import {colors, radii, spacing} from '../../design-system';
 
 type Props = {adminUser?: any; onBack: () => void};
@@ -30,6 +35,13 @@ export function AttendanceActionScreen({adminUser, onBack}: Props) {
       setCameras(Array.isArray(cameraResponse?.cameras) ? cameraResponse.cameras : []);
     }).finally(() => setLoading(false));
   }, [loadSettings]);
+
+  useEffect(() => {
+    const flushQueue = () => syncOfflineAttendanceQueue().catch(() => {});
+    flushQueue();
+    const timer = setInterval(flushQueue, 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   async function submitAttendance(payload: Record<string, unknown>) {
     const response = await api.attendanceImageBase64({
@@ -64,7 +76,35 @@ export function AttendanceActionScreen({adminUser, onBack}: Props) {
           loadLatestSettings={loadSettings}
           detectImage={api.attendanceDetectFrame}
           submitImage={api.attendanceImageBase64}
-          onAutoDetectedAttendance={async payload => submitAttendance({image_base64: payload.imageBase64})}
+          onAutoDetectedAttendance={async payload => {
+            try {
+              const response = await submitAttendance({image_base64: payload.imageBase64});
+              await syncOfflineAttendanceQueue().catch(() => {});
+              return response;
+            } catch {
+              const queued = await enqueueOfflineAttendance({
+                image_base64: payload.imageBase64,
+                camera_id: selectedCameraSource === '__device__' ? undefined : selectedCameraSource,
+                captured_at: new Date().toISOString(),
+              });
+              const local = await recordMobileLocalFaceAttendance({
+                user: payload.user,
+                attendanceType: 'auto',
+                attendanceMode: 'auto_record',
+                similarityPercent: payload.similarityPercent,
+                cooldownSeconds: payload.cooldownSeconds,
+                detection: payload.detection,
+              }).catch(() => null);
+              return {
+                success: true,
+                offline: true,
+                message: 'Mất kết nối máy chủ. Đã lưu ảnh chấm công và sẽ tự đồng bộ khi online.',
+                queue_id: queued.id,
+                user: payload.user,
+                record: local?.record,
+              };
+            }
+          }}
           onSubmitSuccess={async response => setStatus(response?.message || 'Đã ghi nhận điểm danh.')}
         />
       </View>

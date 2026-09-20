@@ -11,7 +11,7 @@ import {CovaVisionAdminHomeScreen} from './src/screens/CovaVisionAdminHomeScreen
 import {api, setApiBaseUrl, setSessionToken, setUnauthorizedListener} from './src/services/api';
 import {AUTH_STORAGE_KEY, clearStoredSession} from './src/services/authSession';
 import {loadConnectionConfig, saveConnectionConfig} from './src/services/connectionStorage';
-import {initializeMobileLocalDataStore} from './src/services/nativeLocalAttendance';
+import {initializeMobileLocalDataStore, syncOfflineAttendanceQueue} from './src/services/nativeLocalAttendance';
 import {colors} from './src/theme';
 import type {AppScreen, ConnectionConfig, ConnectionHealth} from './src/types/app';
 
@@ -57,6 +57,14 @@ export default function App() {
     })().catch(() => setBootstrapped(true));
     return () => setUnauthorizedListener(null);
   }, []);
+
+  useEffect(() => {
+    if (!initialAdminUser) return undefined;
+    const flushQueue = () => syncOfflineAttendanceQueue().catch(() => {});
+    flushQueue();
+    const timer = setInterval(flushQueue, 30_000);
+    return () => clearInterval(timer);
+  }, [initialAdminUser]);
 
   async function checkConnection(draft: ConnectionConfig) {
     setCheckingConnection(true);
