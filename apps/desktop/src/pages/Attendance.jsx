@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckCircle2, Volume2, Sparkles, Send, Radio, Settings2 } from 'lucide-react'
+import { CheckCircle2, Volume2, Sparkles, Send, Radio, Settings2, Maximize2, Minimize2, Clock } from 'lucide-react'
 import { api } from '../services/api'
 import { openBackendMjpegStream } from '../services/backendMjpegStream'
 import { ROUTES } from '../config/routes'
@@ -85,6 +85,50 @@ export default function Attendance() {
     window.addEventListener(CAMERA_SPEAKER_CONFIG_EVENT, handleSpeakerConfigChange)
     return () => window.removeEventListener(CAMERA_SPEAKER_CONFIG_EVENT, handleSpeakerConfigChange)
   }, [])
+
+  const [isKioskMode, setIsKioskMode] = useState(false)
+  const [currentTime, setCurrentTime] = useState(() => new Date())
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const enterKioskMode = () => {
+    setIsKioskMode(true)
+    if (document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {})
+    }
+    window.dispatchEvent(new CustomEvent('covavision:kiosk-mode', { detail: true }))
+  }
+
+  const exitKioskMode = () => {
+    setIsKioskMode(false)
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {})
+    }
+    window.dispatchEvent(new CustomEvent('covavision:kiosk-mode', { detail: false }))
+  }
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      if (!document.fullscreenElement && isKioskMode) {
+        setIsKioskMode(false)
+        window.dispatchEvent(new CustomEvent('covavision:kiosk-mode', { detail: false }))
+      }
+    }
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && isKioskMode) {
+        exitKioskMode()
+      }
+    }
+    document.addEventListener('fullscreenchange', handleFsChange)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFsChange)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isKioskMode])
 
   // Direct-DOM refs for high-fps RTSP rendering (bypasses React reconciliation)
   const rtspImgDomRef = useRef(null)
@@ -1223,6 +1267,17 @@ export default function Attendance() {
               </span>
             </button>
 
+            {/* Nút Chế độ Kiosk Toàn màn hình */}
+            <button
+              type="button"
+              onClick={enterKioskMode}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 hover:bg-purple-100 text-xs font-bold transition-all shadow-xs cursor-pointer"
+              title="Bật chế độ Kiosk toàn màn hình cho quầy lễ tân hoặc cửa ra vào"
+            >
+              <Maximize2 size={13} />
+              <span>Chế độ Kiosk</span>
+            </button>
+
             <div className="flex items-center gap-2 text-sm font-medium">
               <span className={`w-2.5 h-2.5 rounded-full ${cameraRunning ? 'bg-emerald-500' : 'bg-slate-300'}`} />
               <span className={cameraRunning ? 'text-emerald-700' : 'text-slate-500'}>
@@ -1239,12 +1294,61 @@ export default function Attendance() {
         <div className="p-4 sm:p-5 space-y-4">
           <div
             ref={previewContainerRef}
-            className={`relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 ${
-              browserCameraSelected
-                ? 'aspect-[3/4] min-h-[420px] max-h-[78vh] sm:aspect-[4/5] sm:min-h-[520px] lg:aspect-video lg:min-h-0 lg:max-h-none'
-                : 'aspect-video'
-            }`}
+            className={
+              isKioskMode
+                ? 'fixed inset-0 z-50 w-screen h-screen bg-black flex flex-col justify-between overflow-hidden select-none'
+                : `relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 ${
+                    browserCameraSelected
+                      ? 'aspect-[3/4] min-h-[420px] max-h-[78vh] sm:aspect-[4/5] sm:min-h-[520px] lg:aspect-video lg:min-h-0 lg:max-h-none'
+                      : 'aspect-video'
+                  }`
+            }
           >
+            {/* Top Bar for Kiosk Mode */}
+            {isKioskMode && (
+              <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-6 py-4 bg-gradient-to-b from-black/85 via-black/40 to-transparent backdrop-blur-xs text-white pointer-events-auto">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-purple-600/30 border border-purple-500/40 flex items-center justify-center text-purple-300 font-bold shadow-lg">
+                    CV
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold tracking-wide flex items-center gap-2">
+                      <span>COVAVISION KIOSK</span>
+                      <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    </h2>
+                    <p className="text-xs text-slate-300">{selectedCamera?.name || 'Camera Chấm Công'}</p>
+                  </div>
+                </div>
+
+                {/* Digital Clock in Center */}
+                <div className="flex flex-col items-center">
+                  <div className="text-2xl sm:text-3xl font-mono font-bold tracking-wider text-cyan-300 drop-shadow-[0_0_12px_rgba(34,211,238,0.5)]">
+                    {currentTime.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </div>
+                  <div className="text-xs font-medium text-slate-300 capitalize">
+                    {currentTime.toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  </div>
+                </div>
+
+                {/* Right: Today Scan Stat & Exit Button */}
+                <div className="flex items-center gap-3">
+                  <div className="hidden sm:flex flex-col items-end text-xs text-slate-300">
+                    <span className="font-semibold text-white">{todayRecords.length} lượt</span>
+                    <span className="text-[11px] text-slate-400">quét hôm nay</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={exitKioskMode}
+                    className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 active:bg-white/30 text-white border border-white/20 text-xs font-semibold backdrop-blur-md transition-all cursor-pointer shadow-lg"
+                    title="Thoát chế độ Kiosk (Esc)"
+                  >
+                    <Minimize2 size={15} />
+                    <span>Thoát (Esc)</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {cameraRunning && cameraRuntimeMode === 'backend' ? (
               backendStreamReady ? (
                 <img
@@ -1268,7 +1372,7 @@ export default function Attendance() {
                 autoPlay
                 muted
                 playsInline
-                className={`w-full h-full ${browserCameraSelected ? 'object-contain' : 'object-cover'}`}
+                className={`w-full h-full ${browserCameraSelected && !isKioskMode ? 'object-contain' : 'object-cover'}`}
                 style={{
                   transform: previewMirror ? 'scaleX(-1) translateZ(0)' : 'translateZ(0)',
                   willChange: 'transform',
@@ -1282,8 +1386,8 @@ export default function Attendance() {
               </div>
             )}
 
-            {/* FPS Counter Badge — top-right corner */}
-            {cameraRunning && (
+            {/* FPS Counter Badge — top-right corner (hidden in Kiosk or placed below header) */}
+            {cameraRunning && !isKioskMode && (
               <div className="pointer-events-none absolute top-3 right-3 z-30">
                 <div
                   className="px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-sm border border-white/10 shadow-md text-[11px] font-mono font-bold tabular-nums"
@@ -1294,8 +1398,8 @@ export default function Attendance() {
               </div>
             )}
 
-            {/* Floating Top Status Pill */}
-            {cameraRunning && (
+            {/* Floating Top Status Pill in Normal Mode */}
+            {cameraRunning && !isKioskMode && (
               <div className="pointer-events-none absolute top-3.5 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-900/85 backdrop-blur-md border border-white/10 shadow-lg text-xs text-white max-w-[90%]">
                 <span className={`w-2 h-2 rounded-full shrink-0 ${
                   activeFaceLock
@@ -1359,8 +1463,8 @@ export default function Attendance() {
               </div>
             )}
 
-            {/* Floating Completion Banner (Cloned from Mobile) */}
-            {activeFaceLock && (
+            {/* Floating Completion Banner (Normal Mode) */}
+            {!isKioskMode && activeFaceLock && (
               <div className="pointer-events-none absolute bottom-4 left-4 right-4 z-20 flex items-center gap-3.5 p-3.5 rounded-2xl bg-slate-900/92 backdrop-blur-lg border border-emerald-500/40 shadow-2xl transition-all duration-300">
                 <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-400 shrink-0">
                   <CheckCircle2 size={24} className="text-emerald-400" />
@@ -1375,6 +1479,45 @@ export default function Attendance() {
                 </div>
                 <div className="px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 text-xs font-bold uppercase tracking-wider shrink-0 border border-emerald-500/30">
                   Hoàn tất
+                </div>
+              </div>
+            )}
+
+            {/* Kiosk Mode Center Celebration Popup */}
+            {isKioskMode && activeFaceLock && (
+              <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center p-4">
+                <div className="animate-in fade-in zoom-in-95 duration-200 bg-slate-900/90 backdrop-blur-2xl border-2 border-emerald-500/60 rounded-3xl p-6 sm:p-8 max-w-sm sm:max-w-md w-full text-center text-white shadow-[0_0_50px_rgba(16,185,129,0.35)] space-y-4">
+                  <div className="mx-auto w-16 h-16 rounded-2xl bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center text-emerald-400 shadow-inner">
+                    <CheckCircle2 size={36} className="text-emerald-400 animate-bounce" />
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-widest font-bold text-emerald-400">Ghi nhận thành công</p>
+                    <h3 className="text-2xl sm:text-3xl font-extrabold text-white mt-1 truncate">
+                      {activeFaceLock.name}
+                    </h3>
+                    {attendanceFeedback?.detail && (
+                      <p className="text-xs text-slate-300 mt-1">{attendanceFeedback.detail}</p>
+                    )}
+                  </div>
+                  <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-bold">
+                    <span>🕒 {currentTime.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                  </div>
+                  <p className="text-xs text-slate-400 pt-2 border-t border-white/10">
+                    Vui lòng di chuyển để tiếp tục lượt tiếp theo
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Kiosk Mode Bottom Bar */}
+            {isKioskMode && (
+              <div className="absolute bottom-0 left-0 right-0 z-30 px-6 py-3.5 bg-gradient-to-t from-black/85 via-black/40 to-transparent backdrop-blur-xs flex items-center justify-between text-xs text-slate-300">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="font-medium text-white">AI Face Recognition • Đưa khuôn mặt vào giữa khung hình</span>
+                </div>
+                <div className="text-[11px] text-slate-400 font-mono">
+                  CovaVision v2.0 • Kiosk Mode
                 </div>
               </div>
             )}

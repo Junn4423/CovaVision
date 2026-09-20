@@ -43,6 +43,14 @@ export default function Layout() {
     return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired)
   }, [])
 
+  const [isKiosk, setIsKiosk] = useState(false)
+
+  useEffect(() => {
+    const handleKiosk = (e) => setIsKiosk(Boolean(e.detail))
+    window.addEventListener('covavision:kiosk-mode', handleKiosk)
+    return () => window.removeEventListener('covavision:kiosk-mode', handleKiosk)
+  }, [])
+
   useEffect(() => {
     if (window.innerWidth < 1024) setSidebarOpen(false)
   }, [location.pathname])
@@ -95,6 +103,14 @@ export default function Layout() {
 
   const userName = authState.user?.name || authState.user?.username || 'Quản trị viên'
   const userRole = authState.user?.role || 'ADMIN'
+
+  if (isKiosk) {
+    return (
+      <div className="min-h-screen w-screen bg-black overflow-hidden select-none">
+        <Outlet />
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-dvh" style={{ background: 'var(--cv-bg-page)', color: 'var(--cv-text-primary)' }}>
